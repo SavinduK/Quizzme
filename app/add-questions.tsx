@@ -1,41 +1,94 @@
 import { FontAwesome5 } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from './theme';
+
+// Configured with the modern, active Flash architecture endpoint
+const GEMINI_API_KEY = "AIzaSyBOsQr74TmAkeTn9V1w1cqXadFm3sKU1BA"; 
 
 export default function AddQuestions() {
   const [subject, setSubject] = useState('');
   const [term, setTerm] = useState('');
   const [lesson, setLesson] = useState('');
-  const [jsonString, setJsonString] = useState('');
+  const [plainText, setPlainText] = useState(''); 
+  const [processingPdf, setProcessingPdf] = useState(false);
+  const [attachedFileName, setAttachedFileName] = useState<string | null>(null);
   
   const router = useRouter();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
 
+  // Requests document picking permissions, reads binary array values, and streams data directly to Gemini
+  const handlePdfUpload = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      const pickedFile = result.assets[0];
+      setAttachedFileName(pickedFile.name);
+      setProcessingPdf(true);
+
+      // Convert local temporary cache URI into standard base64 chunk strings
+      const base64Data = await FileSystem.readAsStringAsync(pickedFile.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const prompt = "Extract and structure all core study and technical informational notes found inside this document cleanly. Omit conversational introductions. Produce clean, highly informative plain text summaries.";
+
+      // Transmit base64 inline structures alongside processing configuration criteria
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: "application/pdf",
+                  data: base64Data
+                }
+              }
+            ]
+          }]
+        })
+      });
+
+      const resData = await response.json();
+      const extractedText = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!extractedText) {
+        throw new Error("AI engine failed to parse structure or layout inside document asset parameters.");
+      }
+
+      setPlainText(extractedText);
+      Alert.alert("Success", "PDF text extracted and populated successfully.");
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Extraction Error", "Failed to parse information from the selected PDF. Please check your network or try again.");
+      setAttachedFileName(null);
+    } finally {
+      setProcessingPdf(false);
+    }
+  };
+
   const handleSave = async () => {
-    if (!subject.trim() || !term.trim() || !lesson.trim() || !jsonString.trim()) {
+    if (!subject.trim() || !term.trim() || !lesson.trim() || !plainText.trim()) {
       Alert.alert("Error", "Please fill in all meta fields and provide the questions data.");
       return;
     }
 
     try {
-      const parsedData = JSON.parse(jsonString);
-
-      const payload = {
-        subject: subject.trim(),
-        term: term.trim(),
-        lesson: lesson.trim(),
-        multiple_choice_questions: parsedData.multiple_choice_questions || [],
-        short_answer_questions: parsedData.short_answer_questions || [],
-        structured_essay_questions: parsedData.structured_essay_questions || []
-      };
-
       const folderPath = `${FileSystem.documentDirectory}questions/`;
-      const fileName = `${lesson.trim().replace(/\s+/g, '_')}-${subject.trim().replace(/\s+/g, '_')}-${term.trim().replace(/\s+/g, '_')}.json`.toLowerCase();
+      const fileName = `${lesson.trim().replace(/\s+/g, '_')}-${subject.trim().replace(/\s+/g, '_')}-${term.trim().replace(/\s+/g, '_')}.txt`.toLowerCase();
       const fileUri = `${folderPath}${fileName}`;
 
       const folderInfo = await FileSystem.getInfoAsync(folderPath);
@@ -43,13 +96,13 @@ export default function AddQuestions() {
         await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
       }
 
-      await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(payload, null, 2));
+      await FileSystem.writeAsStringAsync(fileUri, plainText);
       
       Alert.alert("Success", "Question engine files compiled perfectly.", [
         { text: "OK", onPress: () => router.back() }
       ]);
     } catch (error) {
-      Alert.alert("JSON Format Error", "Failed to compile. Ensure the incoming text matches the specified JSON object structure.");
+      Alert.alert("Save Error", "Failed to write data to disk.");
     }
   };
 
@@ -87,19 +140,46 @@ export default function AddQuestions() {
           onChangeText={setLesson}
         />
 
-        <Text style={[styles.label, { color: theme.accent, marginTop: 15 }]}>Gemini Output Data (JSON String)</Text>
+        <Text style={[styles.label, { color: theme.accent, marginTop: 15 }]}>Document Ingestion</Text>
+        
+        {/* PDF UPLOAD BUTTON INTERACTION PLATFORM */}
+        <Pressable 
+          disabled={processingPdf}
+          style={[styles.pdfBtn, { backgroundColor: theme.card, borderColor: theme.accent }]} 
+          onPress={handlePdfUpload}
+        >
+          {processingPdf ? (
+            <View style={styles.row}>
+              <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 10 }} />
+              <Text style={{ color: theme.title, fontWeight: '600' }}>AI Ingestion Tool Processing...</Text>
+            </View>
+          ) : (
+            <View style={styles.row}>
+              <FontAwesome5 name="file-pdf" size={18} color={theme.accent} style={{ marginRight: 10 }} />
+              <Text style={{ color: theme.title, fontWeight: '600' }}>
+                {attachedFileName ? `Change: ${attachedFileName}` : "Upload Source Material PDF"}
+              </Text>
+            </View>
+          )}
+        </Pressable>
+
+        <Text style={[styles.label, { color: theme.accent, marginTop: 20 }]}>Source Material Text Content</Text>
         <TextInput 
           style={[styles.textArea, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder="Paste full JSON schematic here..."
+          placeholder="Extracted data will fill here automatically, or paste your schematic framework manually..."
           placeholderTextColor={theme.subtext}
           multiline
           numberOfLines={12}
           textAlignVertical="top"
-          value={jsonString}
-          onChangeText={setJsonString}
+          value={plainText}
+          onChangeText={setPlainText}
         />
 
-        <Pressable style={[styles.submitBtn, { backgroundColor: theme.accent }]} onPress={handleSave}>
+        <Pressable 
+          disabled={processingPdf}
+          style={[styles.submitBtn, { backgroundColor: theme.accent, opacity: processingPdf ? 0.6 : 1 }]} 
+          onPress={handleSave}
+        >
           <Text style={styles.submitBtnText}>Compile & Commit File</Text>
         </Pressable>
       </ScrollView>
@@ -115,6 +195,8 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, paddingHorizontal: 25 },
   label: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },
   input: { height: 54, borderRadius: 16, borderWidth: 1, paddingHorizontal: 16, marginBottom: 15, fontSize: 15, fontWeight: '500' },
+  pdfBtn: { height: 54, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
+  row: { flexDirection: 'row', alignItems: 'center' },
   textArea: { minHeight: 220, borderRadius: 20, borderWidth: 1, padding: 16, fontSize: 13, fontFamily: 'monospace', marginBottom: 25 },
   submitBtn: { height: 56, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
   submitBtnText: { color: 'white', fontSize: 16, fontWeight: '700' }

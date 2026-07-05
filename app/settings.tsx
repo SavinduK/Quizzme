@@ -11,6 +11,7 @@ interface FileItem {
   subject: string;
   term: string;
   lesson: string;
+  preview: string; // Will store the first line
 }
 
 export default function Settings() {
@@ -36,25 +37,26 @@ export default function Settings() {
       const parsedFiles: FileItem[] = [];
 
       for (const filename of fileList) {
-        if (filename.endsWith('.json')) {
+        if (filename.endsWith('.txt')) {
           const content = await FileSystem.readAsStringAsync(`${folderPath}${filename}`);
-          try {
-            const parsed = JSON.parse(content);
-            parsedFiles.push({
-              filename,
-              subject: parsed.subject || 'Unknown Subject',
-              term: parsed.term || 'Unknown Term',
-              lesson: parsed.lesson || 'Unknown Lesson',
-            });
-          } catch {
-            // Include corrupted files so users can clean them up
-            parsedFiles.push({
-              filename,
-              subject: 'Corrupted File',
-              term: 'N/A',
-              lesson: filename,
-            });
-          }
+          
+          const cleanName = filename.replace('.txt', '');
+          const parts = cleanName.split('-');
+          
+          const lesson = parts[0] ? parts[0].replace(/_/g, ' ') : 'Unknown Lesson';
+          const subject = parts[1] ? parts[1].replace(/_/g, ' ') : 'Unknown Subject';
+          const term = parts[2] ? parts[2].replace(/_/g, ' ') : 'Unknown Term';
+
+          // Grab only the first line of text
+          const firstLine = content.split('\n')[0] || '';
+
+          parsedFiles.push({
+            filename,
+            subject,
+            term,
+            lesson,
+            preview: firstLine.trim(),
+          });
         }
       }
       setFiles(parsedFiles);
@@ -77,7 +79,7 @@ export default function Settings() {
       await FileSystem.deleteAsync(fileUri, { idempotent: true });
       setDeleteModalVisible(false);
       setTargetFilename(null);
-      loadSavedDecks(); // Refresh list
+      loadSavedDecks();
     } catch (e) {
       console.error(e);
     }
@@ -103,23 +105,37 @@ export default function Settings() {
         ) : (
           files.map((file) => (
             <View key={file.filename} style={[styles.fileCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={styles.fileMeta}>
-                <Text style={[styles.lessonText, { color: theme.title }]}>{file.lesson}</Text>
+              
+              {/* Card Header Section: Title and Delete Button */}
+              <View style={styles.cardHeader}>
+                <Text style={[styles.lessonText, { color: theme.title }]} numberOfLines={1}>
+                  {file.lesson}
+                </Text>
+                <Pressable
+                  style={styles.deleteBtn}
+                  onPress={() => {
+                    setTargetFilename(file.filename);
+                    setDeleteModalVisible(true);
+                  }}
+                >
+                  <FontAwesome5 name="trash" size={15} color={theme.delete} />
+                </Pressable>
+              </View>
+
+              {/* Card Body Section: Preview line and Metadata tags */}
+              <View style={styles.cardBody}>
+                {file.preview ? (
+                  <Text style={[styles.previewText, { color: theme.subtext }]} numberOfLines={1}>
+                    {file.preview}
+                  </Text>
+                ) : null}
+
                 <Text style={[styles.subtext, { color: theme.subtext }]}>
                   {file.subject} • {file.term}
                 </Text>
                 <Text style={[styles.filenameLabel, { color: theme.subtext }]}>{file.filename}</Text>
               </View>
 
-              <Pressable
-                style={styles.deleteBtn}
-                onPress={() => {
-                  setTargetFilename(file.filename);
-                  setDeleteModalVisible(true);
-                }}
-              >
-                <FontAwesome5 name="trash" size={16} color={theme.delete} />
-              </Pressable>
             </View>
           ))
         )}
@@ -155,12 +171,14 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
   scroll: { flex: 1, paddingHorizontal: 20 },
   sectionTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 15, marginLeft: 5 },
-  fileCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderRadius: 20, borderWidth: 1, marginBottom: 12 },
-  fileMeta: { flex: 1, marginRight: 10 },
-  lessonText: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  subtext: { fontSize: 13, fontWeight: '500', marginBottom: 6 },
-  filenameLabel: { fontSize: 11, fontFamily: 'monospace', opacity: 0.7 },
-  deleteBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', padding: 8 },
+  fileCard: { padding: 18, borderRadius: 20, borderWidth: 1, marginBottom: 12 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  lessonText: { fontSize: 16, fontWeight: '700', flex: 1, marginRight: 10 },
+  deleteBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
+  cardBody: { gap: 4 },
+  previewText: { fontSize: 13, fontStyle: 'italic', opacity: 0.8, marginBottom: 4 },
+  subtext: { fontSize: 12, fontWeight: '600' },
+  filenameLabel: { fontSize: 11, fontFamily: 'monospace', opacity: 0.5 },
   emptyContainer: { alignItems: 'center', marginTop: 100 },
   emptyText: { marginTop: 15, fontSize: 16, fontWeight: '500' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },

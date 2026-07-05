@@ -6,7 +6,8 @@ import { Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, View, useCol
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Footer from './footer';
 import { Colors } from './theme';
-import { UnifiedQuizDeck } from './UnifiedQuizDeck';
+
+const CACHE_DIR = `${FileSystem.documentDirectory}cached-questions/`;
 
 export default function HomeFeed() {
   const router = useRouter();
@@ -18,31 +19,32 @@ export default function HomeFeed() {
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
   const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
 
-  const [compiledPool, setCompiledPool] = useState({ mcqs: [], shortAnswers: [], essays: [] });
-  const [mcqAnswers, setMcqAnswers] = useState<{ [key: string]: string }>({});
-  const [revealedShort, setRevealedShort] = useState<{ [key: string]: boolean }>({});
-  const [revealedEssays, setRevealedEssays] = useState<{ [key: string]: boolean }>({});
+  const [compiledPool, setCompiledPool] = useState<any[]>([]);
+  const [mcqAnswers, setMcqAnswers] = useState<{ [key: number]: string }>({});
 
-  // Dropdown UI Visibility States
   const [subPickerVisible, setSubPickerVisible] = useState(false);
   const [termPickerVisible, setTermPickerVisible] = useState(false);
 
   const fetchAvailableDecks = async () => {
     try {
-      const folderPath = `${FileSystem.documentDirectory}questions/`;
-      const folderInfo = await FileSystem.getInfoAsync(folderPath);
+      const folderInfo = await FileSystem.getInfoAsync(CACHE_DIR);
       if (!folderInfo.exists) return;
 
-      const files = await FileSystem.readDirectoryAsync(folderPath);
+      const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
       const uniqueSubjects = new Set<string>();
       const uniqueTerms = new Set<string>();
 
       for (const file of files) {
         if (file.endsWith('.json')) {
-          const content = await FileSystem.readAsStringAsync(`${folderPath}${file}`);
-          const parsed = JSON.parse(content);
-          if (parsed.subject) uniqueSubjects.add(parsed.subject);
-          if (parsed.term) uniqueTerms.add(parsed.term);
+          const cleanName = file.replace('.json', '');
+          const parts = cleanName.split('-');
+          
+          if (parts.length >= 3) {
+            const parsedSubject = parts[1].replace(/_/g, ' ');
+            const parsedTerm = parts[2].replace(/_/g, ' ');
+            uniqueSubjects.add(parsedSubject);
+            uniqueTerms.add(parsedTerm);
+          }
         }
       }
       setSubjects(Array.from(uniqueSubjects));
@@ -52,37 +54,40 @@ export default function HomeFeed() {
 
   const generateRandomSession = async () => {
     try {
-      const folderPath = `${FileSystem.documentDirectory}questions/`;
-      const files = await FileSystem.readDirectoryAsync(folderPath);
-      
+      const folderInfo = await FileSystem.getInfoAsync(CACHE_DIR);
+      if (!folderInfo.exists) return;
+
+      const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
       let rawMcqs: any[] = [];
-      let rawShorts: any[] = [];
-      let rawEssays: any[] = [];
 
       for (const file of files) {
         if (!file.endsWith('.json')) continue;
-        const rawContent = await FileSystem.readAsStringAsync(`${folderPath}${file}`);
-        const parsed = JSON.parse(rawContent);
+        
+        const cleanName = file.replace('.json', '');
+        const parts = cleanName.split('-');
+        
+        if (parts.length >= 3) {
+          const fileSubject = parts[1].replace(/_/g, ' ');
+          const fileTerm = parts[2].replace(/_/g, ' ');
 
-        const matchSubject = !selectedSubject || parsed.subject === selectedSubject;
-        const matchTerm = !selectedTerm || parsed.term === selectedTerm;
+          const matchSubject = !selectedSubject || fileSubject === selectedSubject;
+          const matchTerm = !selectedTerm || fileTerm === selectedTerm;
 
-        if (matchSubject && matchTerm) {
-          if (parsed.multiple_choice_questions) rawMcqs.push(...parsed.multiple_choice_questions);
-          if (parsed.short_answer_questions) rawShorts.push(...parsed.short_answer_questions);
-          if (parsed.structured_essay_questions) rawEssays.push(...parsed.structured_essay_questions);
+          if (matchSubject && matchTerm) {
+            const rawContent = await FileSystem.readAsStringAsync(`${CACHE_DIR}${file}`);
+            const parsed = JSON.parse(rawContent);
+            
+            if (Array.isArray(parsed)) {
+              rawMcqs.push(...parsed);
+            } else if (parsed && Array.isArray(parsed.questions)) {
+              rawMcqs.push(...parsed.questions);
+            }
+          }
         }
       }
 
-      setCompiledPool({
-        mcqs: rawMcqs.sort(() => 0.5 - Math.random()).slice(0, 4),
-        shortAnswers: rawShorts.sort(() => 0.5 - Math.random()).slice(0, 3),
-        essays: rawEssays.sort(() => 0.5 - Math.random()).slice(0, 3)
-      });
-
+      setCompiledPool(rawMcqs.sort(() => 0.5 - Math.random()).slice(0, 5));
       setMcqAnswers({});
-      setRevealedShort({});
-      setRevealedEssays({});
     } catch (e) { console.error(e); }
   };
 
@@ -127,20 +132,67 @@ export default function HomeFeed() {
       </View>
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        {compiledPool.mcqs.length === 0 && compiledPool.shortAnswers.length === 0 && compiledPool.essays.length === 0 ? (
+        {compiledPool.length === 0 ? (
           <View style={styles.emptyContainer}>
             <FontAwesome5 name="graduation-cap" size={50} color={theme.border} />
             <Text style={[styles.emptyText, { color: theme.subtext }]}>No datasets matched selection.</Text>
           </View>
         ) : (
-          <UnifiedQuizDeck 
-            questions={compiledPool}
-            state={{ mcqAnswers, revealedShort, revealedEssays }}
-            onMcqSelect={(qIdx, choice) => setMcqAnswers(p => ({ ...p, [qIdx]: choice }))}
-            onToggleShort={(qIdx) => setRevealedShort(p => ({ ...p, [qIdx]: !p[qIdx] }))}
-            onToggleEssay={(idKey) => setRevealedEssays(p => ({ ...p, [idKey]: !p[idKey] }))}
-            theme={theme}
-          />
+          <View>
+            {/* INLINE QUIZ QUESTIONS */}
+            {compiledPool.map((item, qIdx) => {
+              const chosen = mcqAnswers[qIdx];
+              return (
+                <View key={qIdx} style={[styles.quizCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Text style={[styles.quizQuestion, { color: theme.title }]}>{qIdx + 1}. {item.question}</Text>
+                  
+                  {item.options.map((option: string, oIdx: number) => {
+                    const isSelected = chosen === option;
+                    const isCorrect = option === item.correct_answer;
+                    
+                    let optionBg = 'transparent';
+                    let optionBorder = theme.border;
+
+                    if (chosen) {
+                      if (isCorrect) {
+                        optionBg = 'rgba(74, 222, 128, 0.15)'; 
+                        optionBorder = '#4ade80';
+                      } else if (isSelected) {
+                        optionBg = 'rgba(248, 113, 113, 0.15)'; 
+                        optionBorder = '#f87171';
+                      }
+                    } else if (isSelected) {
+                      optionBg = theme.background;
+                    }
+
+                    return (
+                      <Pressable
+                        key={oIdx}
+                        disabled={!!chosen}
+                        style={[styles.optionButton, { backgroundColor: optionBg, borderColor: optionBorder }]}
+                        onPress={() => setMcqAnswers(p => ({ ...p, [qIdx]: option }))}
+                      >
+                        <Text style={[styles.optionText, { color: theme.title, fontWeight: isSelected ? '700' : '400' }]}>
+                          {option}
+                        </Text>
+                        {chosen && isCorrect && <FontAwesome5 name="check-circle" size={14} color="#4ade80" />}
+                        {chosen && isSelected && !isCorrect && <FontAwesome5 name="times-circle" size={14} color="#f87171" />}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              );
+            })}
+            
+            {/* REFRESH BUTTON */}
+            <Pressable 
+              style={[styles.refreshButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
+              onPress={generateRandomSession}
+            >
+              <FontAwesome5 name="sync-alt" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+              <Text style={[styles.refreshButtonText, { color: theme.accent }]}>Refresh Questions</Text>
+            </Pressable>
+          </View>
         )}
       </ScrollView>
 
@@ -202,5 +254,11 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: '80%', borderRadius: 24, padding: 20, alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 15 },
-  modalItem: { width: '100%', paddingVertical: 14, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' }
+  modalItem: { width: '100%', paddingVertical: 14, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
+  quizCard: { padding: 20, borderRadius: 22, borderWidth: 1, marginBottom: 16 },
+  quizQuestion: { fontSize: 16, fontWeight: '700', marginBottom: 15, lineHeight: 22 },
+  optionButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 8 },
+  optionText: { fontSize: 14, flex: 1, paddingRight: 10 },
+  refreshButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 14, borderWidth: 1, marginTop: 10, marginBottom: 30, width: '100%' },
+  refreshButtonText: { fontSize: 15, fontWeight: '700' }
 });
