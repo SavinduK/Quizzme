@@ -5,6 +5,7 @@ import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from './theme';
+import Footer from './footer';
 
 const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
 
@@ -60,9 +61,6 @@ export default function Settings() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header section matching previous setup */}
       <View style={styles.header}>
-        <Pressable style={[styles.backBtn, { backgroundColor: theme.card }]} onPress={() => router.replace("/")}>
-          <FontAwesome5 name="arrow-left" size={16} color={theme.title} />
-        </Pressable>
         <Text style={[styles.headerTitle, { color: theme.title }]}>Configuration Settings</Text>
       </View>
 
@@ -112,6 +110,7 @@ export default function Settings() {
           </View>
         </View>
       )}
+    <Footer/>
     </SafeAreaView>
   );
 }

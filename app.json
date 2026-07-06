@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "SmartMedicineDispenser",
-    "slug": "SmartMedicineDispenser",
+    "name": "QuizzMe",
+    "slug": "QuizzMe",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "smartmedicinedispenser",
+    "scheme": "qiuzzme",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
