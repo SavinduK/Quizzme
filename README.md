@@ -22,7 +22,7 @@ Installation
 
 Clone the repository:
 
-git clone https://github.com/YOUR_USERNAME/quizme.git
+git clone https://github.com/SavinduK/Quizzme.git
 cd quizme
 
 Install dependencies:
