@@ -7,8 +7,11 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, Text
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from './theme';
 
-// Configured with the modern, active Flash architecture endpoint
-const GEMINI_API_KEY = "AIzaSyBOsQr74TmAkeTn9V1w1cqXadFm3sKU1BA"; 
+const FALLBACK_GEMINI_API_KEY = ""; 
+
+// Directory and File paths
+const QUESTIONS_DIR = `${FileSystem.documentDirectory}questions/`;
+const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
 
 export default function AddQuestions() {
   const [subject, setSubject] = useState('');
@@ -36,15 +39,29 @@ export default function AddQuestions() {
       setAttachedFileName(pickedFile.name);
       setProcessingPdf(true);
 
-      // Convert local temporary cache URI into standard base64 chunk strings
+      // 1. Resolve dynamic API Key configuration from file storage
+      let activeApiKey = FALLBACK_GEMINI_API_KEY;
+      try {
+        const keyFileCheck = await FileSystem.getInfoAsync(KEY_FILE_URI);
+        if (keyFileCheck.exists) {
+          const storedKey = await FileSystem.readAsStringAsync(KEY_FILE_URI);
+          if (storedKey.trim().length > 0) {
+            activeApiKey = storedKey.trim();
+          }
+        }
+      } catch (keyError) {
+        console.warn("Could not read local key.txt, relying on default token assignment.", keyError);
+      }
+
+      // 2. Convert local temporary cache URI into standard base64 chunk strings
       const base64Data = await FileSystem.readAsStringAsync(pickedFile.uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
       const prompt = "Extract and structure all core study and technical informational notes found inside this document cleanly. Omit conversational introductions. Produce clean, highly informative plain text summaries.";
 
-      // Transmit base64 inline structures alongside processing configuration criteria
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      // 3. Transmit base64 inline structures alongside active resolved key configuration
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -87,13 +104,12 @@ export default function AddQuestions() {
     }
 
     try {
-      const folderPath = `${FileSystem.documentDirectory}questions/`;
       const fileName = `${lesson.trim().replace(/\s+/g, '_')}-${subject.trim().replace(/\s+/g, '_')}-${term.trim().replace(/\s+/g, '_')}.txt`.toLowerCase();
-      const fileUri = `${folderPath}${fileName}`;
+      const fileUri = `${QUESTIONS_DIR}${fileName}`;
 
-      const folderInfo = await FileSystem.getInfoAsync(folderPath);
+      const folderInfo = await FileSystem.getInfoAsync(QUESTIONS_DIR);
       if (!folderInfo.exists) {
-        await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
+        await FileSystem.makeDirectoryAsync(QUESTIONS_DIR, { intermediates: true });
       }
 
       await FileSystem.writeAsStringAsync(fileUri, plainText);
@@ -142,7 +158,6 @@ export default function AddQuestions() {
 
         <Text style={[styles.label, { color: theme.accent, marginTop: 15 }]}>Document Ingestion</Text>
         
-        {/* PDF UPLOAD BUTTON INTERACTION PLATFORM */}
         <Pressable 
           disabled={processingPdf}
           style={[styles.pdfBtn, { backgroundColor: theme.card, borderColor: theme.accent }]} 

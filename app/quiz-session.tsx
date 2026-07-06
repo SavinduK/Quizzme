@@ -20,11 +20,12 @@ interface MCQQuestion {
   correct_answer: string;
 }
 
-const GEMINI_API_KEY = "AIzaSyBOsQr74TmAkeTn9V1w1cqXadFm3sKU1BA"; 
+const FALLBACK_GEMINI_API_KEY = ""; 
 
-// Directory paths
+// Directory and File paths
 const QUESTIONS_DIR = `${FileSystem.documentDirectory}questions/`;
 const CACHE_DIR = `${FileSystem.documentDirectory}cached-questions/`;
+const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
 
 export default function QuestionSession() {
   const colorScheme = useColorScheme();
@@ -40,6 +41,10 @@ export default function QuestionSession() {
 
   const [subModalVisible, setSubModalVisible] = useState(false);
   const [termModalVisible, setTermModalVisible] = useState(false);
+  
+  // States for custom file deletion
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [targetFilename, setTargetFilename] = useState<string | null>(null);
 
   // Index text source files
   const indexLocalFiles = async () => {
@@ -75,6 +80,30 @@ export default function QuestionSession() {
   const uniqueTerms = Array.from(new Set(filesMeta.filter(f => f.subject === selectedSubject).map(f => f.term)));
   const availableLessons = filesMeta.filter(f => f.subject === selectedSubject && f.term === selectedTerm);
 
+  // Custom function to permanently delete the selected module file
+  const handleDeleteFile = async () => {
+    if (!targetFilename) return;
+
+    try {
+      const fileUri = `${QUESTIONS_DIR}${targetFilename}`;
+      await FileSystem.deleteAsync(fileUri, { idempotent: true });
+      
+      // Also clear associated JSON cache file if it exists
+      const jsonFilename = targetFilename.replace('.txt', '.json');
+      const cacheUri = `${CACHE_DIR}${jsonFilename}`;
+      const cacheCheck = await FileSystem.getInfoAsync(cacheUri);
+      if (cacheCheck.exists) {
+        await FileSystem.deleteAsync(cacheUri, { idempotent: true });
+      }
+
+      setDeleteModalVisible(false);
+      setTargetFilename(null);
+      indexLocalFiles(); // Refresh list after deleting
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Helper function to handle offline/error fallback generation
   const handleFallbackQuiz = async () => {
     try {
@@ -92,7 +121,6 @@ export default function QuestionSession() {
 
       let aggregatedQuestions: MCQQuestion[] = [];
 
-      // Read all cached quizzes and pool their questions together
       for (const file of jsonFiles) {
         const fileContent = await FileSystem.readAsStringAsync(`${CACHE_DIR}${file}`);
         const parsed = JSON.parse(fileContent);
@@ -107,7 +135,6 @@ export default function QuestionSession() {
         throw new Error("No valid questions found in local cache files.");
       }
 
-      // Shuffle and select up to 5 random questions from pool
       const shuffled = [...aggregatedQuestions].sort(() => 0.5 - Math.random());
       const fallbackDeck = shuffled.slice(0, 5);
 
@@ -130,12 +157,28 @@ export default function QuestionSession() {
   const launchDeck = async (filename: string) => {
     setLoading(true);
     try {
+      // 1. Resolve dynamic API Key configuration from file storage
+      let activeApiKey = FALLBACK_GEMINI_API_KEY;
+      try {
+        const keyFileCheck = await FileSystem.getInfoAsync(KEY_FILE_URI);
+        if (keyFileCheck.exists) {
+          const storedKey = await FileSystem.readAsStringAsync(KEY_FILE_URI);
+          if (storedKey.trim().length > 0) {
+            activeApiKey = storedKey.trim();
+          }
+        }
+      } catch (keyError) {
+        console.warn("Could not read local key.txt, relying on default token assignment.", keyError);
+      }
+
+      // 2. Load file text content
       const targetStr = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${filename}`);
       
       const prompt = `Based on the following source material text, generate exactly 5 multiple choice questions. Each question must have exactly 5 distinct options. Return the data strictly as a JSON object containing an array called "questions". Each item in the array must contain "question" (string), "options" (array of 5 strings), and "correct_answer" (string matching exactly one of the options).
 Source material text:${targetStr}`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      // 3. Request quiz construction using active resolved key configuration
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -167,7 +210,6 @@ Source material text:${targetStr}`;
       setActiveDeck(targetDeck);
       setSelectedAnswers({});
 
-      // Ensure the caching directory exists, then save the response locally
       const jsonFilename = filename.replace('.txt', '.json');
       const dirInfo = await FileSystem.getInfoAsync(CACHE_DIR);
       if (!dirInfo.exists) {
@@ -230,17 +272,28 @@ Source material text:${targetStr}`;
                     <Text style={{ color: theme.subtext, fontStyle: 'italic', marginLeft: 5 }}>No lessons match this combination.</Text>
                   ) : (
                     availableLessons.map(les => (
-                      <Pressable 
-                        key={les.filename} 
-                        style={[styles.lessonRow, { backgroundColor: theme.card, borderColor: theme.border }]}
-                        onPress={() => launchDeck(les.filename)}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.lessonTitle, { color: theme.title }]}>{les.lesson}</Text>
-                          <Text style={{ color: theme.subtext, fontSize: 12 }}>{les.subject} • {les.term}</Text>
-                        </View>
-                        <FontAwesome5 name="chevron-right" size={14} color={theme.border} />
-                      </Pressable>
+                      <View key={les.filename} style={[styles.lessonRowContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                        <Pressable 
+                          style={styles.lessonPressable}
+                          onPress={() => launchDeck(les.filename)}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.lessonTitle, { color: theme.title }]}>{les.lesson}</Text>
+                            <Text style={{ color: theme.subtext, fontSize: 12 }}>{les.subject} • {les.term}</Text>
+                          </View>
+                          <FontAwesome5 name="chevron-right" size={14} color={theme.border} style={{ marginRight: 5 }} />
+                        </Pressable>
+                        
+                        <Pressable
+                          style={styles.deleteBtn}
+                          onPress={() => {
+                            setTargetFilename(les.filename);
+                            setDeleteModalVisible(true);
+                          }}
+                        >
+                          <FontAwesome5 name="trash" size={14} color={theme.delete} />
+                        </Pressable>
+                      </View>
                     ))
                   )}
                 </View>
@@ -339,6 +392,26 @@ Source material text:${targetStr}`;
         </Pressable>
       </Modal>
 
+      {/* CUSTOM DELETE CONFIRMATION MODAL */}
+      <Modal transparent visible={deleteModalVisible} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.customModalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.customModalTitle, { color: theme.title }]}>Delete Dataset</Text>
+            <Text style={[styles.customModalSub, { color: theme.subtext }]}>
+              Are you sure you want to permanently delete this file? This action cannot be undone.
+            </Text>
+            <View style={styles.customModalActions}>
+              <Pressable style={styles.customModalBtn} onPress={() => setDeleteModalVisible(false)}>
+                <Text style={{ color: theme.subtext, fontWeight: '600' }}>Cancel</Text>
+              </Pressable>
+              <Pressable style={[styles.customModalBtn, { backgroundColor: theme.delete }]} onPress={handleDeleteFile}>
+                <Text style={{ color: 'white', fontWeight: '600' }}>Delete</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Footer />
     </SafeAreaView>
   );
@@ -355,16 +428,23 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 15 },
   placeholderContainer: { alignItems: 'center', marginTop: 40, paddingHorizontal: 20 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  lessonRow: { flexDirection: 'row', alignItems: 'center', padding: 18, borderRadius: 20, borderWidth: 1, marginBottom: 10 },
+  lessonRowContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 20, borderWidth: 1, marginBottom: 10, paddingRight: 10 },
+  lessonPressable: { flex: 1, flexDirection: 'row', alignItems: 'center', padding: 18 },
   lessonTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
+  deleteBtn: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.02)' },
   exitRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
   exitText: { fontSize: 14, fontWeight: '700' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: '80%', borderRadius: 24, padding: 20, alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 15 },
   modalItem: { width: '100%', paddingVertical: 14, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
   quizCard: { padding: 20, borderRadius: 22, borderWidth: 1, marginBottom: 16 },
   quizQuestion: { fontSize: 16, fontWeight: '700', marginBottom: 15, lineHeight: 22 },
   optionButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 8 },
-  optionText: { fontSize: 14, flex: 1, paddingRight: 10 }
+  optionText: { fontSize: 14, flex: 1, paddingRight: 10 },
+  customModalContent: { width: '85%', padding: 25, borderRadius: 30, alignItems: 'center' },
+  customModalTitle: { fontSize: 20, fontWeight: '700', marginBottom: 10 },
+  customModalSub: { textAlign: 'center', marginBottom: 25, lineHeight: 20 },
+  customModalActions: { flexDirection: 'row', gap: 15 },
+  customModalBtn: { flex: 1, padding: 15, borderRadius: 15, alignItems: 'center' }
 });
