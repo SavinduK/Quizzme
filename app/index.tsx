@@ -9,6 +9,8 @@ import { Colors } from './theme';
 
 const CACHE_DIR = `${FileSystem.documentDirectory}cached-questions/`;
 
+type QuestionType = 'all' | 'mcq' | 'tf';
+
 export default function HomeFeed() {
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -16,14 +18,17 @@ export default function HomeFeed() {
 
   const [subjects, setSubjects] = useState<string[]>([]);
   const [terms, setTerms] = useState<string[]>([]);
+  
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
   const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<QuestionType>('all');
 
   const [compiledPool, setCompiledPool] = useState<any[]>([]);
-  const [mcqAnswers, setMcqAnswers] = useState<{ [key: number]: string }>({});
+  const [quizAnswers, setQuizAnswers] = useState<{ [key: number]: string }>({});
 
   const [subPickerVisible, setSubPickerVisible] = useState(false);
   const [termPickerVisible, setTermPickerVisible] = useState(false);
+  const [typePickerVisible, setTypePickerVisible] = useState(false);
 
   const fetchAvailableDecks = async () => {
     try {
@@ -58,7 +63,7 @@ export default function HomeFeed() {
       if (!folderInfo.exists) return;
 
       const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
-      let rawMcqs: any[] = [];
+      let rawQuestions: any[] = [];
 
       for (const file of files) {
         if (!file.endsWith('.json')) continue;
@@ -76,23 +81,41 @@ export default function HomeFeed() {
           if (matchSubject && matchTerm) {
             const rawContent = await FileSystem.readAsStringAsync(`${CACHE_DIR}${file}`);
             const parsed = JSON.parse(rawContent);
+            let questionsList: any[] = [];
             
             if (Array.isArray(parsed)) {
-              rawMcqs.push(...parsed);
+              questionsList = parsed;
             } else if (parsed && Array.isArray(parsed.questions)) {
-              rawMcqs.push(...parsed.questions);
+              questionsList = parsed.questions;
             }
+
+            // Filter by question type (MCQ vs True/False)
+            if (selectedType !== 'all') {
+              questionsList = questionsList.filter(q => {
+                // Infers type from explicit 'type' key or structure of options
+                const qType = q.type?.toLowerCase() || (q.options?.length === 2 ? 'tf' : 'mcq');
+                return qType === selectedType;
+              });
+            }
+
+            rawQuestions.push(...questionsList);
           }
         }
       }
 
-      setCompiledPool(rawMcqs.sort(() => 0.5 - Math.random()).slice(0, 5));
-      setMcqAnswers({});
+      setCompiledPool(rawQuestions.sort(() => 0.5 - Math.random()).slice(0, 5));
+      setQuizAnswers({});
     } catch (e) { console.error(e); }
   };
 
   useFocusEffect(useCallback(() => { fetchAvailableDecks(); }, []));
-  useFocusEffect(useCallback(() => { generateRandomSession(); }, [selectedSubject, selectedTerm]));
+  useFocusEffect(useCallback(() => { generateRandomSession(); }, [selectedSubject, selectedTerm, selectedType]));
+
+  const getTypeLabel = (type: QuestionType) => {
+    if (type === 'mcq') return 'MCQs Only';
+    if (type === 'tf') return 'T/F Only';
+    return 'All Types';
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -100,7 +123,6 @@ export default function HomeFeed() {
 
       <View style={styles.header}>
         <View>
-          <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>Random Evaluation Mode</Text>
           <Text style={[styles.headerTitle, { color: theme.title }]}>Daily Flash-Quizzes</Text>
         </View>
         <Pressable style={[styles.addBtn, { backgroundColor: theme.accent }]} onPress={() => router.push('/add-questions')}>
@@ -108,16 +130,16 @@ export default function HomeFeed() {
         </Pressable>
       </View>
 
-      {/* SINGLE ROW DROPDOWN PICKERS */}
+      {/* THREE COLUMN DROPDOWN PICKERS */}
       <View style={styles.dropdownRow}>
         <Pressable 
           style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]} 
           onPress={() => setSubPickerVisible(true)}
         >
           <Text style={[styles.dropdownText, { color: theme.title }]} numberOfLines={1}>
-            {selectedSubject ?? "All Subjects"}
+            {selectedSubject ?? "Subjects"}
           </Text>
-          <FontAwesome5 name="chevron-down" size={12} color={theme.subtext} />
+          <FontAwesome5 name="chevron-down" size={10} color={theme.subtext} />
         </Pressable>
 
         <Pressable 
@@ -125,9 +147,19 @@ export default function HomeFeed() {
           onPress={() => setTermPickerVisible(true)}
         >
           <Text style={[styles.dropdownText, { color: theme.title }]} numberOfLines={1}>
-            {selectedTerm ?? "All Terms"}
+            {selectedTerm ?? "Terms"}
           </Text>
-          <FontAwesome5 name="chevron-down" size={12} color={theme.subtext} />
+          <FontAwesome5 name="chevron-down" size={10} color={theme.subtext} />
+        </Pressable>
+
+        <Pressable 
+          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]} 
+          onPress={() => setTypePickerVisible(true)}
+        >
+          <Text style={[styles.dropdownText, { color: theme.title }]} numberOfLines={1}>
+            {getTypeLabel(selectedType)}
+          </Text>
+          <FontAwesome5 name="chevron-down" size={10} color={theme.subtext} />
         </Pressable>
       </View>
 
@@ -141,14 +173,17 @@ export default function HomeFeed() {
           <View>
             {/* INLINE QUIZ QUESTIONS */}
             {compiledPool.map((item, qIdx) => {
-              const chosen = mcqAnswers[qIdx];
+              const chosen = quizAnswers[qIdx];
+              // Normalize options for T/F if they aren't explicitly provided arrays
+              const options: string[] = item.options || ["True", "False"];
+
               return (
                 <View key={qIdx} style={[styles.quizCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <Text style={[styles.quizQuestion, { color: theme.title }]}>{qIdx + 1}. {item.question}</Text>
                   
-                  {item.options.map((option: string, oIdx: number) => {
+                  {options.map((option: string, oIdx: number) => {
                     const isSelected = chosen === option;
-                    const isCorrect = option === item.correct_answer;
+                    const isCorrect = option.toLowerCase() === String(item.correct_answer).toLowerCase();
                     
                     let optionBg = 'transparent';
                     let optionBorder = theme.border;
@@ -170,7 +205,7 @@ export default function HomeFeed() {
                         key={oIdx}
                         disabled={!!chosen}
                         style={[styles.optionButton, { backgroundColor: optionBg, borderColor: optionBorder }]}
-                        onPress={() => setMcqAnswers(p => ({ ...p, [qIdx]: option }))}
+                        onPress={() => setQuizAnswers(p => ({ ...p, [qIdx]: option }))}
                       >
                         <Text style={[styles.optionText, { color: theme.title, fontWeight: isSelected ? '700' : '400' }]}>
                           {option}
@@ -234,6 +269,26 @@ export default function HomeFeed() {
         </Pressable>
       </Modal>
 
+      {/* TYPE SELECTION MODAL */}
+      <Modal visible={typePickerVisible} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setTypePickerVisible(false)}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.title }]}>Select Question Type</Text>
+            <ScrollView style={{ width: '100%', maxHeight: 300 }}>
+              <Pressable style={styles.modalItem} onPress={() => { setSelectedType('all'); setTypePickerVisible(false); }}>
+                <Text style={{ color: theme.accent, fontWeight: '700' }}>All Types</Text>
+              </Pressable>
+              <Pressable style={styles.modalItem} onPress={() => { setSelectedType('mcq'); setTypePickerVisible(false); }}>
+                <Text style={{ color: theme.title, fontWeight: '500' }}>Multiple Choice (MCQs)</Text>
+              </Pressable>
+              <Pressable style={styles.modalItem} onPress={() => { setSelectedType('tf'); setTypePickerVisible(false); }}>
+                <Text style={{ color: theme.title, fontWeight: '500' }}>True / False</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
       <Footer />
     </SafeAreaView>
   );
@@ -242,12 +297,11 @@ export default function HomeFeed() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25, paddingTop: 20 },
-  headerSubtitle: { fontSize: 13, fontWeight: '600', marginBottom: 2 },
   headerTitle: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
   addBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  dropdownRow: { flexDirection: 'row', paddingHorizontal: 25, marginVertical: 15, gap: 12 },
-  dropdown: { flex: 1, height: 46, borderRadius: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14 },
-  dropdownText: { fontSize: 14, fontWeight: '600', flex: 1, marginRight: 8 },
+  dropdownRow: { flexDirection: 'row', paddingHorizontal: 25, marginVertical: 15, gap: 8 },
+  dropdown: { flex: 1, height: 46, borderRadius: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10 },
+  dropdownText: { fontSize: 12, fontWeight: '600', flex: 1, marginRight: 4 },
   scroll: { flex: 1, paddingHorizontal: 20 },
   emptyContainer: { alignItems: 'center', marginTop: 80 },
   emptyText: { marginTop: 15, fontSize: 15, fontWeight: '500' },
