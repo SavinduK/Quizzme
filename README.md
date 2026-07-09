@@ -1,50 +1,66 @@
-# Welcome to your Expo app 👋
+QuizMe
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+QuizMe is an AI-powered quiz generator built with Expo and React Native. Upload your lecture slides, and the app extracts the text, saves it locally as a ".txt" file, and uses the Gemini API to generate multiple-choice questions (MCQs). Previously generated questions are cached, allowing you to access them even when you're offline.
 
-## Get started
+Features
 
-1. Install dependencies
+- 📄 Upload lecture slides (PDF)
+- 📝 Automatically extract and save slide text as a ".txt" file
+- 🤖 Generate MCQs using the Gemini API
+- 💾 Cache generated quizzes for offline access
+- 📚 Organize quizzes by lecture
 
-   ```bash
-   npm install
-   ```
+Getting Started
 
-2. Start the app
+Prerequisites
 
-   ```bash
-   npx expo start
-   ```
+- Node.js (LTS recommended)
+- npm
+- Expo CLI (optional)
 
-In the output, you'll find options to open the app in a
+Installation
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Clone the repository:
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+git clone https://github.com/SavinduK/Quizzme.git
+cd quizme
 
-## Get a fresh project
+Install dependencies:
 
-When you're ready, run:
+npm install
 
-```bash
-npm run reset-project
-```
+Start the Expo development server:
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+npx expo start
 
-## Learn more
+Open the app using Expo Go or run it on an Android emulator, iOS Simulator, or a connected device.
 
-To learn more about developing your project with Expo, look at the following resources:
+Gemini API Setup
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+QuizMe requires a Gemini API key to generate quizzes.
 
-## Join the community
+1. Open the Google Cloud Console.
+2. Create a project (or select an existing one).
+3. Enable the Gemini API (Generative Language API) for your project.
+4. Create an API key.
+5. Copy the API key.
+6. Launch the QuizMe app.
+7. Open the Settings screen.
+8. Paste the API key into the Gemini API Key field.
+9. Select the Gemini model you want to use.
+10. Save your settings.
 
-Join our community of developers creating universal apps.
+The app will use this API key for all AI-powered quiz generation. Your API key is stored locally on your device and is not included in the repository.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+How It Works
+
+1. Upload a lecture PDF.
+2. The app extracts the text from the document.
+3. The extracted text is saved locally as a ".txt" file.
+4. The text is sent to the Gemini API.
+5. Gemini generates multiple-choice questions.
+6. The generated questions are cached locally, allowing you to review them even without an internet connection.
+
+License
+
+This project is licensed under the MIT License.
