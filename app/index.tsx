@@ -89,58 +89,74 @@ export default function HomeFeed() {
   };
 
   const generateRandomSession = async () => {
-    try {
-      const folderInfo = await FileSystem.getInfoAsync(CACHE_DIR);
-      if (!folderInfo.exists) return;
+  try {
+    const folderInfo = await FileSystem.getInfoAsync(CACHE_DIR);
+    if (!folderInfo.exists) return;
 
-      const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
-      console.log(files)
-      let rawQuestions: any[] = [];
+    const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
+    console.log(files);
+    let rawQuestions: any[] = [];
 
-      for (const file of files) {
-        if (!file.endsWith('.json')) continue;
-        
-        const cleanName = file.replace('.json', '');
-        const parts = cleanName.split('-');
-        
-        if (parts.length >= 3) {
-          const fileSubject = parts[1].replace(/_/g, ' ');
-          const fileTerm = parts[2].replace(/_/g, ' ');
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      
+      const cleanName = file.replace('.json', '');
+      const parts = cleanName.split('-');
+      
+      if (parts.length >= 3) {
+        const fileSubject = parts[1].replace(/_/g, ' ');
+        const fileTerm = parts[2].replace(/_/g, ' ');
 
-          const matchSubject = !selectedSubject || fileSubject === selectedSubject;
-          const matchTerm = !selectedTerm || fileTerm === selectedTerm;
+        const matchSubject = !selectedSubject || fileSubject === selectedSubject;
+        const matchTerm = !selectedTerm || fileTerm === selectedTerm;
 
-          if (matchSubject && matchTerm) {
-            const rawContent = await FileSystem.readAsStringAsync(`${CACHE_DIR}${file}`);
-            if (!rawContent || rawContent.trim() === '') continue;
+        if (matchSubject && matchTerm) {
+          const rawContent = await FileSystem.readAsStringAsync(`${CACHE_DIR}${file}`);
+          if (!rawContent || rawContent.trim() === '') continue;
 
-            try {
-              const parsed = JSON.parse(rawContent);
-              let questionsList: any[] = [];
-              
-              if (Array.isArray(parsed)) {
-                questionsList = parsed;
-              } else if (parsed && Array.isArray(parsed.questions)) {
-                questionsList = parsed.questions;
+          try {
+            const parsed = JSON.parse(rawContent);
+            console.log(parsed);
+            let questionsList: any[] = [];
+            
+            if (Array.isArray(parsed)) {
+              questionsList = parsed;
+            } else if (parsed && Array.isArray(parsed.questions)) {
+              questionsList = parsed.questions;
+            }
+
+            // MODIFIED FILTER LOGIC: Sort by structural keys
+            questionsList = questionsList.filter((q) => {
+              let qType = '';
+
+              // Identify TF: Contains 'statements' and 'answers' arrays
+              if (Array.isArray(q.statements) && Array.isArray(q.answers)) {
+                qType = 'tf';
+              } 
+              // Identify MCQ: Contains 'options' array and 'correct_answer' string
+              else if (Array.isArray(q.options) && typeof q.correct_answer === 'string') {
+                qType = 'mcq';
+              } else if (q.type) {
+                // Fallback just in case some questions explicitly declare their type
+                qType = q.type.toLowerCase();
               }
 
-              questionsList = questionsList.filter(q => {
-                const qType = q.type?.toLowerCase() || (q.options?.length === 2 ? 'tf' : 'mcq');
-                return qType === selectedType;
-              });
+              return qType === selectedType.toLowerCase();
+            });
 
-              rawQuestions.push(...questionsList);
-            } catch (err) { console.error(err); }
-          }
-        }
-      }
+            rawQuestions.push(...questionsList);
+          } catch (err) {
+            console.error(`Error parsing JSON in ${file}:`, err);
+          }}
+      }}
 
-      // Dynamic slicing calculation mapped to configured file states
-      setCompiledPool(rawQuestions.sort(() => 0.5 - Math.random()).slice(0, maxQuestionsCount));
-      resetQuizSessionState();
-    } catch (e) { console.error(e); }
-  };
-
+    // Dynamic slicing calculation mapped to configured file states
+    setCompiledPool(rawQuestions.sort(() => 0.5 - Math.random()).slice(0, maxQuestionsCount));
+    resetQuizSessionState();
+  } catch (e) {
+    console.error('Error generating random session:', e);
+  }
+};
   const resetQuizSessionState = () => {
     setCurrentQuestionIndex(0);
     setRunningScore(0);
