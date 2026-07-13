@@ -34,10 +34,10 @@ export default function QuizCard({
       {/* HEADER SECTION */}
       <View style={styles.quizHeaderRow}> 
         <Text style={[styles.progressText, { color: theme.title }]}>
-          Question {currentQuestionIdx + 1} of {totalQuestions}
+           {currentQuestionIdx + 1} \ {totalQuestions}
         </Text>
         <View style={[styles.scoreBadge, { backgroundColor: theme.accent }]}>
-          <Text style={styles.scoreBadgeText}>Total Score: {runningScore} / {maxPossibleScore}</Text>
+          <Text style={styles.scoreBadgeText}>Score: {runningScore} / {maxPossibleScore}</Text>
         </View>
       </View>
 
@@ -145,7 +145,7 @@ export default function QuizCard({
 }
 
 const styles = StyleSheet.create({
-    quizCard: { padding: 20, borderRadius: 22, borderWidth: 1, marginBottom: 16,marginTop:24,},
+    quizCard: { padding: 20, borderRadius: 22, borderWidth: 1, marginBottom: 16,marginTop:12,},
     quizHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, width: '100%' },
     progressText: { fontSize: 13, fontWeight: '600', opacity: 0.8 },
     scoreBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },

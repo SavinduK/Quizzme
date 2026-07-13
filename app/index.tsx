@@ -28,27 +28,21 @@ export default function HomeFeed() {
 
   const [compiledPool, setCompiledPool] = useState<any[]>([]);
   const [quizFinished, setQuizFinished] = useState<boolean>(false);
-  
-  // Dynamic pool limit state parsed from second line of key.txt (Defaults to 5)
   const [maxQuestionsCount, setMaxQuestionsCount] = useState<number>(5);
   
-  // Single Card Operational State Managers
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
   const [runningScore, setRunningScore] = useState<number>(0);
   const [chosenAnswer, setChosenAnswer] = useState<string | null>(null);
   
-  // True/False granular breakdown evaluation tracking states
   const [tfSelections, setTfSelections] = useState<{ [key: number]: boolean | null }>({ 0: null, 1: null, 2: null, 3: null, 4: null });
   const [tfChecked, setTfChecked] = useState<boolean>(false);
   const [tfQuestionScore, setTfQuestionScore] = useState<number>(0);
 
-  const [subPickerVisible, setSubPickerVisible] = useState(false);
-  const [termPickerVisible, setTermPickerVisible] = useState(false);
-  const [typePickerVisible, setTypePickerVisible] = useState(false);
+  // Unified Bottom Drawer Filter Panel Visibility Toggle
+  const [filterPanelVisible, setFilterPanelVisible] = useState(false);
 
   const fetchAvailableDecks = async () => {
     try {
-      // --- Read target question count bounds configurations from key.txt ---
       const keyFileInfo = await FileSystem.getInfoAsync(KEY_FILE_URI);
       if (keyFileInfo.exists) {
         const keyFileContent = await FileSystem.readAsStringAsync(KEY_FILE_URI);
@@ -83,80 +77,73 @@ export default function HomeFeed() {
           }
         }
       }
-      setSubjects(Array.from(uniqueSubjects));
-      setTerms(Array.from(uniqueTerms));
+      setSubjects(Array.from(uniqueSubjects).sort());
+      setTerms(Array.from(uniqueTerms).sort());
     } catch (e) { console.error("Error reading data file systems:", e); }
   };
 
   const generateRandomSession = async () => {
-  try {
-    const folderInfo = await FileSystem.getInfoAsync(CACHE_DIR);
-    if (!folderInfo.exists) return;
+    try {
+      const folderInfo = await FileSystem.getInfoAsync(CACHE_DIR);
+      if (!folderInfo.exists) return;
 
-    const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
-    console.log(files);
-    let rawQuestions: any[] = [];
+      const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
+      let rawQuestions: any[] = [];
 
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
-      
-      const cleanName = file.replace('.json', '');
-      const parts = cleanName.split('-');
-      
-      if (parts.length >= 3) {
-        const fileSubject = parts[1].replace(/_/g, ' ');
-        const fileTerm = parts[2].replace(/_/g, ' ');
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        
+        const cleanName = file.replace('.json', '');
+        const parts = cleanName.split('-');
+        
+        if (parts.length >= 3) {
+          const fileSubject = parts[1].replace(/_/g, ' ');
+          const fileTerm = parts[2].replace(/_/g, ' ');
 
-        const matchSubject = !selectedSubject || fileSubject === selectedSubject;
-        const matchTerm = !selectedTerm || fileTerm === selectedTerm;
+          const matchSubject = !selectedSubject || fileSubject === selectedSubject;
+          const matchTerm = !selectedTerm || fileTerm === selectedTerm;
 
-        if (matchSubject && matchTerm) {
-          const rawContent = await FileSystem.readAsStringAsync(`${CACHE_DIR}${file}`);
-          if (!rawContent || rawContent.trim() === '') continue;
+          if (matchSubject && matchTerm) {
+            const rawContent = await FileSystem.readAsStringAsync(`${CACHE_DIR}${file}`);
+            if (!rawContent || rawContent.trim() === '') continue;
 
-          try {
-            const parsed = JSON.parse(rawContent);
-            console.log(parsed);
-            let questionsList: any[] = [];
-            
-            if (Array.isArray(parsed)) {
-              questionsList = parsed;
-            } else if (parsed && Array.isArray(parsed.questions)) {
-              questionsList = parsed.questions;
-            }
-
-            // MODIFIED FILTER LOGIC: Sort by structural keys
-            questionsList = questionsList.filter((q) => {
-              let qType = '';
-
-              // Identify TF: Contains 'statements' and 'answers' arrays
-              if (Array.isArray(q.statements) && Array.isArray(q.answers)) {
-                qType = 'tf';
-              } 
-              // Identify MCQ: Contains 'options' array and 'correct_answer' string
-              else if (Array.isArray(q.options) && typeof q.correct_answer === 'string') {
-                qType = 'mcq';
-              } else if (q.type) {
-                // Fallback just in case some questions explicitly declare their type
-                qType = q.type.toLowerCase();
+            try {
+              const parsed = JSON.parse(rawContent);
+              let questionsList: any[] = [];
+              
+              if (Array.isArray(parsed)) {
+                questionsList = parsed;
+              } else if (parsed && Array.isArray(parsed.questions)) {
+                questionsList = parsed.questions;
               }
 
-              return qType === selectedType.toLowerCase();
-            });
+              questionsList = questionsList.filter((q) => {
+                let qType = '';
+                if (Array.isArray(q.statements) && Array.isArray(q.answers)) {
+                  qType = 'tf';
+                } else if (Array.isArray(q.options) && typeof q.correct_answer === 'string') {
+                  qType = 'mcq';
+                } else if (q.type) {
+                  qType = q.type.toLowerCase();
+                }
+                return qType === selectedType.toLowerCase();
+              });
 
-            rawQuestions.push(...questionsList);
-          } catch (err) {
-            console.error(`Error parsing JSON in ${file}:`, err);
-          }}
-      }}
+              rawQuestions.push(...questionsList);
+            } catch (err) {
+              console.error(`Error parsing JSON in ${file}:`, err);
+            }
+          }
+        }
+      }
 
-    // Dynamic slicing calculation mapped to configured file states
-    setCompiledPool(rawQuestions.sort(() => 0.5 - Math.random()).slice(0, maxQuestionsCount));
-    resetQuizSessionState();
-  } catch (e) {
-    console.error('Error generating random session:', e);
-  }
-};
+      setCompiledPool(rawQuestions.sort(() => 0.5 - Math.random()).slice(0, maxQuestionsCount));
+      resetQuizSessionState();
+    } catch (e) {
+      console.error('Error generating random session:', e);
+    }
+  };
+
   const resetQuizSessionState = () => {
     setCurrentQuestionIndex(0);
     setRunningScore(0);
@@ -178,7 +165,6 @@ export default function HomeFeed() {
     for (let i = 0; i < 5; i++) {
       const selected = tfSelections[i];
       const realAnswer = currentQ.answers?.[i];
-
       if (selected !== null && selected !== undefined) {
         if (selected === realAnswer) {
           calculatedQScore += 1;
@@ -206,9 +192,20 @@ export default function HomeFeed() {
     }
   };
 
-  const getTypeLabel = (type: QuestionType) => {
-    return type === 'mcq' ? 'MCQs Only' : 'T/F Only';
+  const resetFilters = () => {
+    setSelectedSubject(null);
+    setSelectedTerm(null);
+    setSelectedType('mcq');
   };
+
+  const hasActiveFilters = selectedSubject || selectedTerm || selectedType !== 'mcq';
+  
+  // Creates a clean readable context banner string showing current config parameters
+  const targetSummaryText = [
+    selectedSubject ?? 'All Subjects',
+    selectedTerm ?? 'All Terms',
+    selectedType === 'mcq' ? 'MCQs' : 'True/False'
+  ].join(' • ');
 
   const maxPossibleScore = selectedType === 'tf' ? compiledPool.length * 5 : compiledPool.length;
 
@@ -218,21 +215,20 @@ export default function HomeFeed() {
 
       <Header title="Daily Flash-Quizzes" onRightButtonPress={() => router.push('/add-questions')} />
 
-      {/* FILTERS DROPDOWN COMPONENT BASE */}
-      <View style={styles.dropdownRow}>
-        <Pressable style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => setSubPickerVisible(true)}>
-          <Text style={[styles.dropdownText, { color: theme.title }]} numberOfLines={1}>{selectedSubject ?? "All Subjects"}</Text>
-          <FontAwesome5 name="chevron-down" size={10} color={theme.subtext} />
-        </Pressable>
+      {/* Modern Control Row: Config Summary & Filter Settings Trigger Button */}
+      <View style={styles.controlRow}>
+        <View style={styles.summaryTextContainer}>
+          <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Current Session </Text>
+        </View>
 
-        <Pressable style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => setTermPickerVisible(true)}>
-          <Text style={[styles.dropdownText, { color: theme.title }]} numberOfLines={1}>{selectedTerm ?? "All Terms"}</Text>
-          <FontAwesome5 name="chevron-down" size={10} color={theme.subtext} />
-        </Pressable>
-
-        <Pressable style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => setTypePickerVisible(true)}>
-          <Text style={[styles.dropdownText, { color: theme.title }]} numberOfLines={1}>{getTypeLabel(selectedType)}</Text>
-          <FontAwesome5 name="chevron-down" size={10} color={theme.subtext} />
+        <Pressable
+          onPress={() => setFilterPanelVisible(true)}
+          style={[
+            styles.filterActionButton,
+            { backgroundColor: theme.background, borderColor: hasActiveFilters ? theme.accent : theme.border },
+          ]}
+        >
+          <FontAwesome5 name="sliders-h" size={15} color={hasActiveFilters ? theme.accent : theme.title} />
         </Pressable>
       </View>
 
@@ -240,7 +236,12 @@ export default function HomeFeed() {
         {compiledPool.length === 0 ? (
           <View style={styles.emptyContainer}>
             <FontAwesome5 name="graduation-cap" size={50} color={theme.border} />
-            <Text style={[styles.emptyText, { color: theme.subtext }]}>No datasets matched selection.</Text>
+            <Text style={[styles.emptyText, { color: theme.subtext }]}>No questions found for this criteria.</Text>
+            {hasActiveFilters && (
+              <Pressable style={[styles.inlineClearBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={resetFilters}>
+                <Text style={{ color: theme.accent, fontWeight: '600', fontSize: 13 }}>Reset Filters</Text>
+              </Pressable>
+            )}
           </View>
         ) : quizFinished ? (
           <View style={styles.emptyContainer}>
@@ -262,16 +263,12 @@ export default function HomeFeed() {
             </Pressable>
           </View>
         ) : (
-          /* SINGLE CARD INTERACTION INJECTOR MODULE */
           <QuizCard
             item={compiledPool[currentQuestionIndex]}
             chosenAnswer={chosenAnswer}
             runningScore={runningScore}
             maxPossibleScore={maxPossibleScore}
-            setChosenAnswer={(answer) => {
-              // Isolated point evaluation safely inside the individual card component
-              setChosenAnswer(answer);
-            }}
+            setChosenAnswer={(answer) => setChosenAnswer(answer)}
             setRunningScore={setRunningScore}
             tfSelections={tfSelections}
             setTfSelections={setTfSelections}
@@ -285,57 +282,103 @@ export default function HomeFeed() {
         )}
       </ScrollView>
 
-      {/* MODAL CONFIGURATIONS */}
-      <Modal visible={subPickerVisible} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setSubPickerVisible(false)}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.title }]}>Select Subject</Text>
-            <ScrollView style={{ width: '100%', maxHeight: 300 }}>
-              <Pressable style={styles.modalItem} onPress={() => { setSelectedSubject(null); setSubPickerVisible(false); }}>
-                <Text style={{ color: theme.accent, fontWeight: '700' }}>All Subjects</Text>
-              </Pressable>
-              {subjects.map(sub => (
-                <Pressable key={sub} style={styles.modalItem} onPress={() => { setSelectedSubject(sub); setSubPickerVisible(false); }}>
-                  <Text style={{ color: theme.title, fontWeight: '500' }}>{sub}</Text>
+      {/* --- REFACTORED INTEGRATED BOTTOM SHEET FILTER MODAL --- */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={filterPanelVisible}
+        onRequestClose={() => setFilterPanelVisible(false)}
+      >
+        <View style={styles.drawerOverlay}>
+          <Pressable style={styles.drawerDismissZone} onPress={() => setFilterPanelVisible(false)} />
+          
+          <View style={[styles.drawerSheetContainer, { backgroundColor: theme.card }]}>
+            <SafeAreaView edges={['bottom']}>
+              {/* Drawer Header Area */}
+              <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.drawerTitle, { color: theme.title }]}>Quiz Generation Parameters</Text>
+                <Pressable onPress={() => setFilterPanelVisible(false)} style={styles.drawerCloseBtn}>
+                  <FontAwesome5 name="times" size={16} color={theme.title} />
                 </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
+              </View>
 
-      <Modal visible={termPickerVisible} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setTermPickerVisible(false)}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.title }]}>Select Term</Text>
-            <ScrollView style={{ width: '100%', maxHeight: 300 }}>
-              <Pressable style={styles.modalItem} onPress={() => { setSelectedTerm(null); setTermPickerVisible(false); }}>
-                <Text style={{ color: theme.accent, fontWeight: '700' }}>All Terms</Text>
-              </Pressable>
-              {terms.map(t => (
-                <Pressable key={t} style={styles.modalItem} onPress={() => { setSelectedTerm(t); setTermPickerVisible(false); }}>
-                  <Text style={{ color: theme.title, fontWeight: '500' }}>{t}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
+              <ScrollView style={styles.drawerBodyContent} showsVerticalScrollIndicator={false}>
+                {/* 1. Question Formatting Framework Configuration Selector */}
+                <Text style={[styles.groupHeadingLabel, { color: theme.subtext }]}>Question Format</Text>
+                <View style={styles.chipClusterFlexRow}>
+                  <Pressable
+                    onPress={() => setSelectedType('mcq')}
+                    style={[styles.filterChip, selectedType === 'mcq' ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.filterChipText, selectedType === 'mcq' ? { color: '#FFF' } : { color: theme.title }]}>Multiple Choice (MCQ)</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setSelectedType('tf')}
+                    style={[styles.filterChip, selectedType === 'tf' ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.filterChipText, selectedType === 'tf' ? { color: '#FFF' } : { color: theme.title }]}>True / False Matrix</Text>
+                  </Pressable>
+                </View>
 
-      <Modal visible={typePickerVisible} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setTypePickerVisible(false)}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.title }]}>Select Question Type</Text>
-            <ScrollView style={{ width: '100%', maxHeight: 300 }}>
-              <Pressable style={styles.modalItem} onPress={() => { setSelectedType('mcq'); setTypePickerVisible(false); }}>
-                <Text style={{ color: theme.title, fontWeight: '500' }}>Multiple Choice (MCQs)</Text>
-              </Pressable>
-              <Pressable style={styles.modalItem} onPress={() => { setSelectedType('tf'); setTypePickerVisible(false); }}>
-                <Text style={{ color: theme.title, fontWeight: '500' }}>True / False</Text>
-              </Pressable>
-            </ScrollView>
+                {/* 2. Academic Course Selection Map */}
+                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Subject Focus Area</Text>
+                <View style={styles.chipClusterFlexRow}>
+                  <Pressable
+                    onPress={() => setSelectedSubject(null)}
+                    style={[styles.filterChip, !selectedSubject ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.filterChipText, !selectedSubject ? { color: '#FFF' } : { color: theme.title }]}>All Subjects</Text>
+                  </Pressable>
+                  {subjects.map((sub) => {
+                    const active = selectedSubject === sub;
+                    return (
+                      <Pressable
+                        key={sub}
+                        onPress={() => setSelectedSubject(sub)}
+                        style={[styles.filterChip, active ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                      >
+                        <Text style={[styles.filterChipText, active ? { color: '#FFF' } : { color: theme.title }]}>{sub}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {/* 3. Academic Term Interval Selection Map */}
+                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Term / Period</Text>
+                <View style={styles.chipClusterFlexRow}>
+                  <Pressable
+                    onPress={() => setSelectedTerm(null)}
+                    style={[styles.filterChip, !selectedTerm ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.filterChipText, !selectedTerm ? { color: '#FFF' } : { color: theme.title }]}>All Terms</Text>
+                  </Pressable>
+                  {terms.map((trm) => {
+                    const active = selectedTerm === trm;
+                    return (
+                      <Pressable
+                        key={trm}
+                        onPress={() => setSelectedTerm(trm)}
+                        style={[styles.filterChip, active ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                      >
+                        <Text style={[styles.filterChipText, active ? { color: '#FFF' } : { color: theme.title }]}>{trm}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {/* Operational Action Confirmation Layout Buttons Footer */}
+                <View style={styles.drawerFooterGroup}>
+                  <Pressable onPress={resetFilters} style={[styles.footerBtnSecondary, { borderColor: theme.border }]}>
+                    <Text style={{ color: theme.title, fontWeight: '600' }}>Reset Options</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setFilterPanelVisible(false)} style={[styles.footerBtnPrimary, { backgroundColor: theme.accent }]}>
+                    <Text style={{ color: '#FFF', fontWeight: '700' }}>Recompile Pool</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </SafeAreaView>
           </View>
-        </Pressable>
+        </View>
       </Modal>
 
       <Footer />
@@ -345,18 +388,32 @@ export default function HomeFeed() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  dropdownRow: { flexDirection: 'row', paddingHorizontal: 25, marginVertical: 15, gap: 8 },
-  dropdown: { flex: 1, height: 46, borderRadius: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10 },
-  dropdownText: { fontSize: 12, fontWeight: '600', flex: 1, marginRight: 4 },
+  controlRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 16, marginBottom: 5, gap: 12 },
+  summaryTextContainer: { flex: 1 },
+  summaryLabel: { fontSize: 15, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+  filterActionButton: { width: 44, height: 44, borderRadius: 12,  justifyContent: 'center', alignItems: 'center' },
   scroll: { flex: 1, paddingHorizontal: 20 },
-  emptyContainer: { alignItems: 'center', marginTop: 80, width: '100%' },
-  emptyText: { marginTop: 15, fontSize: 15, fontWeight: '500' },
+  emptyContainer: { alignItems: 'center', marginTop: 80, width: '100%', paddingHorizontal: 20 },
+  emptyText: { marginTop: 15, fontSize: 15, fontWeight: '500', textAlign: 'center' },
+  inlineClearBtn: { marginTop: 16, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
   scoreContainer: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 16, borderWidth: 1, marginVertical: 15 },
   scoreText: { fontSize: 16, fontWeight: '700' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '80%', borderRadius: 24, padding: 20, alignItems: 'center' },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 15 },
-  modalItem: { width: '100%', paddingVertical: 14, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
   refreshButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 14, borderWidth: 1, marginTop: 10, marginBottom: 30, width: '100%' },
   refreshButtonText: { fontSize: 15, fontWeight: '700' },
+
+  /* DRAWER SHEET MODAL OVERLAY ARCHITECTURE */
+  drawerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  drawerDismissZone: { flex: 1 },
+  drawerSheetContainer: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 10, maxHeight: '85%' },
+  drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 18, borderWidth: 1, borderTopWidth: 0, borderLeftWidth: 0, borderRightWidth: 0 },
+  drawerTitle: { fontSize: 16, fontWeight: '700' },
+  drawerCloseBtn: { padding: 4 },
+  drawerBodyContent: { padding: 24 },
+  groupHeadingLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+  chipClusterFlexRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, borderWidth: 1 },
+  filterChipText: { fontSize: 13, fontWeight: '600' },
+  drawerFooterGroup: { flexDirection: 'row', gap: 12, marginTop: 36, marginBottom: 24 },
+  footerBtnSecondary: { flex: 1, height: 46, borderRadius: 12, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  footerBtnPrimary: { flex: 2, height: 46, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
 });

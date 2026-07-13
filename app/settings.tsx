@@ -79,7 +79,7 @@ export default function Settings() {
           
           {/* CARD 1: AI ENGINE CREDENTIALS */}
           <Text style={[styles.sectionTitle, { color: theme.accent }]}>AI Engine Configuration</Text>
-          <View style={[styles.configCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 20 }]}>
+          <View style={[styles.configCard, { backgroundColor: theme.background, borderColor: theme.border, marginBottom: 20 }]}>
             <View style={styles.labelRow}>
               <FontAwesome5 name="key" size={14} color={theme.subtext} style={{ marginRight: 8 }} />
               <Text style={[styles.inputLabel, { color: theme.title }]}>Gemini API Key</Text>
@@ -97,8 +97,8 @@ export default function Settings() {
           </View>
 
           {/* CARD 2: QUIZ GENERATION SETTINGS */}
-          <Text style={[styles.sectionTitle, { color: theme.accent }]}>Quiz Architecture Settings</Text>
-          <View style={[styles.configCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.sectionTitle, { color: theme.accent }]}>Quiz Settings</Text>
+          <View style={[styles.configCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
             {/* QUESTION COUNT SELECTOR */}
             <Text style={[styles.inputLabel, { color: theme.title }]}>Number of Questions</Text>
             <View style={styles.segmentedControl}>
@@ -146,10 +146,6 @@ export default function Settings() {
               textAlignVertical="top"
             />
 
-            <Text style={[styles.hintText, { color: theme.subtext, marginTop: 8 }]}>
-              Preferences are written locally to configure parsing pipelines for custom study metrics.
-            </Text>
-
             <Pressable 
               style={[styles.saveBtn, { backgroundColor: theme.accent, opacity: isSaving ? 0.7 : 1 }]} 
               onPress={handleSaveSettings}
@@ -179,7 +175,7 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 25, paddingTop: 10 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   sectionTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, marginLeft: 5 },
-  configCard: { padding: 22, borderRadius: 24, borderWidth: 1, gap: 12 },
+  configCard: { padding: 5, borderRadius: 24,  gap: 12 },
   labelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   inputLabel: { fontSize: 14, fontWeight: '700' },
   input: { height: 48, borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, fontSize: 14 },

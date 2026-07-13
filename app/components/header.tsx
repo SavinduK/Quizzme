@@ -19,10 +19,10 @@ export default function Header({ title,  onRightButtonPress }: HeaderProps) {
       {/* Only render the button if an action is provided */}
       {onRightButtonPress && (
         <Pressable 
-          style={[styles.addBtn, { backgroundColor: theme.accent }]} 
+          style={[styles.addBtn, { backgroundColor: theme.background }]} 
           onPress={onRightButtonPress}
         >
-          <FontAwesome5 name="plus" size={16} color="white" />
+          <FontAwesome5 name="plus" size={18} color="white" />
         </Pressable>
       )}
     </View>
@@ -30,7 +30,7 @@ export default function Header({ title,  onRightButtonPress }: HeaderProps) {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25, paddingTop: 20 },
-  headerTitle: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25, paddingTop: 20,marginBottom:5 },
+  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
   addBtn: { width: 40, height: 40, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
 });

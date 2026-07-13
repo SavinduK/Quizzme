@@ -10,7 +10,6 @@ import Header from './components/header';
 import ModuleSelector from './components/module-selector';
 import QuizCard from './components/quiz-card';
 import QuizResults from './components/quiz-results';
-import SelectorModal from './components/selector-model';
 import { Colors } from './constants/theme';
 
 interface TargetFile {
@@ -243,79 +242,61 @@ export default function QuestionSession() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-     <Header title="Lecture Questions" onRightButtonPress={() => router.push('/add-questions')} />
+    <Header title="Lecture Questions" onRightButtonPress={() => router.push('/add-questions')} />
 
-      {!activeDeck && !loading && (
+    {/* 1. Global Loading State (Highest Priority) */}
+    {loading && (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.accent} />
+        <Text style={{ color: theme.subtext, marginTop: 12, fontWeight: '500' }}>Compiling Engine Questions...</Text>
+      </View>
+    )}
+
+    {/* 2. Selection View: No active deck, and not loading */}
+    {!loading && !activeDeck && (
       <ModuleSelector
-        selectedSubject={selectedSubject}
-        selectedTerm={selectedTerm}
-        availableLessons={availableLessons}
-        setSubModalVisible={setSubModalVisible}
-        setTermModalVisible={setTermModalVisible}
+        availableLessons={filesMeta}
         launchDeck={launchDeck}
         copyToClipboard={copyToClipboard}
         onSelectDeleteTarget={(filename) => { setTargetFilename(filename); setDeleteModalVisible(true); }}
       />
     )}
 
-    {loading ? (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.accent} />
-        <Text style={{ color: theme.subtext, marginTop: 12, fontWeight: '500' }}>Compiling Engine Questions...</Text>
-      </View>
-    ) : (
+    {/* 3. Quiz Game View: Active deck is running */}
+    {!loading && activeDeck && (
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        {activeDeck && (
-          <View>
-            {quizFinished ? (
-              <QuizResults  
-                runningScore={runningScore} 
-                maxPossibleScore={maxPossibleScore} 
-                onReturn={() => setActiveDeck(null)} 
-              />
-            ) : (
-                <QuizCard
-                  item={activeDeck[currentQuestionIdx]}
-                  chosenAnswer={chosenAnswer}
-                  runningScore={runningScore}
-                  maxPossibleScore={maxPossibleScore}
-                  setChosenAnswer={setChosenAnswer}
-                  setRunningScore={setRunningScore}
-                  tfSelections={tfSelections}
-                  setTfSelections={setTfSelections}
-                  tfChecked={tfChecked}
-                  tfQuestionScore={tfQuestionScore}
-                  evaluateTfQuestion={evaluateTfQuestion}
-                  handleNextQuestion={handleNextQuestion}
-                  currentQuestionIdx={currentQuestionIdx}
-                  totalQuestions={activeDeck.length}
-                />
-            )}
-          </View>
-        )}
+        <View>
+          {quizFinished ? (
+            <QuizResults  
+              runningScore={runningScore} 
+              maxPossibleScore={maxPossibleScore} 
+              onReturn={() => setActiveDeck(null)} 
+            />
+          ) : (
+            <QuizCard
+              item={activeDeck[currentQuestionIdx]}
+              chosenAnswer={chosenAnswer}
+              runningScore={runningScore}
+              maxPossibleScore={maxPossibleScore}
+              setChosenAnswer={setChosenAnswer}
+              setRunningScore={setRunningScore}
+              tfSelections={tfSelections}
+              setTfSelections={setTfSelections}
+              tfChecked={tfChecked}
+              tfQuestionScore={tfQuestionScore}
+              evaluateTfQuestion={evaluateTfQuestion}
+              handleNextQuestion={handleNextQuestion}
+              currentQuestionIdx={currentQuestionIdx}
+              totalQuestions={activeDeck.length}
+            />
+          )}
+        </View>
       </ScrollView>
     )}
-     
-      <SelectorModal
-        visible={subModalVisible} title="Select Subject" items={uniqueSubjects}
-        onClose={() => setSubModalVisible(false)}
-        onSelect={(sub) => {
-          setSelectedSubject(sub);
-          setSelectedTerm(null); 
-          setSubModalVisible(false);
-        }}
-      />
-      <SelectorModal
-        visible={termModalVisible} title="Select Term" items={uniqueTerms}
-        onClose={() => setTermModalVisible(false)}
-        onSelect={(t) => {
-          setSelectedTerm(t);
-          setTermModalVisible(false);
-        }}
-      />
-      <DeleteModal visible={deleteModalVisible} onCancel={() => setDeleteModalVisible(false)} onConfirm={handleDeleteFile} />
-      <Footer />
-    </SafeAreaView>
+
+    <DeleteModal visible={deleteModalVisible} onCancel={() => setDeleteModalVisible(false)} onConfirm={handleDeleteFile} />
+    <Footer />
+  </SafeAreaView>
   );
 }
 
