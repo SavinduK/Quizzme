@@ -67,7 +67,7 @@ export default function AddQuestions() {
         encoding: FileSystem.EncodingType.Base64,
       });
 
-      const prompt = "Extract and structure all core study and subject related notes found inside this document cleanly. Omit unwanted text. Produce clean, highly informative plain text summaries.";
+      const prompt = "Extract and structure all core study and subject-related information found inside this document. Automatically fix any clear typos or errors, and add helpful clarifications where concepts need context. Structure the final output beautifully using clear Markdown (including headings, bullet points, tables, and blockquotes where appropriate) to ensure the notes are highly clean, scannable, and informative.";
 
       // 3. Transmit base64 inline structures alongside active resolved key configuration
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {

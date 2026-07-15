@@ -37,7 +37,7 @@ export default function Footer() {
           size={18} 
           color={isActive('/quiz-session') ? theme.accent : theme.subtext} 
         />
-        <Text style={[styles.tabText, { color: isActive('/quiz-session') ? theme.accent : theme.subtext }]}>Practice</Text>
+        <Text style={[styles.tabText, { color: isActive('/quiz-session') ? theme.accent : theme.subtext }]}>Lessions</Text>
       </Pressable>
 
       {/* SETTINGS TAB */}

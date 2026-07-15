@@ -1,9 +1,9 @@
 import { FontAwesome5 } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +11,7 @@ import {
   useColorScheme,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, SUBJECT_PALETTES } from '../constants/theme';
 
 // Helper to consistently assign one of the 6 palettes based on the subject name string
@@ -171,6 +172,16 @@ export default function ModuleSelector({
                   >
                     <FontAwesome5 name="bolt" size={16} color={theme.accent} />
                   </Pressable>
+
+                  {/* Lesson Summary Screen Button */}
+                    <Pressable 
+                      style={styles.iconIconButton} 
+                      onPress={() => router.push({
+                        pathname: '/summary',
+                        params: { filename: les.filename, lesson: les.lesson }
+                      })}>
+                      <FontAwesome5 name="file-alt" size={16} color='#93C5fd' />
+                    </Pressable>
 
                   {/* Delete Button */}
                   <Pressable

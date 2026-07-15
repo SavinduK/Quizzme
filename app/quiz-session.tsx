@@ -1,9 +1,8 @@
-import { FontAwesome5 } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, useColorScheme } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DeleteModal from './components/delete-model';
 import Footer from './components/footer';
@@ -36,6 +35,7 @@ const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
 
 export default function QuestionSession() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ launchFilename?: string }>();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
 
@@ -43,10 +43,6 @@ export default function QuestionSession() {
   const [loading, setLoading] = useState(false);
   const [activeDeck, setActiveDeck] = useState<MCQQuestion[] | null>(null);
   const [isTFQuiz, setIsTFQuiz] = useState<boolean>(false);
-  
-  // Reading View State
-  const [readingFile, setReadingFile] = useState<TargetFile | null>(null);
-  const [readingContent, setReadingContent] = useState<string>("");
 
   // Single Question Display & Quiz State Indexes
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState<number>(0);
@@ -88,6 +84,13 @@ export default function QuestionSession() {
 
   useFocusEffect(useCallback(() => { indexLocalFiles(); }, []));
 
+  // Catch dynamic forwards from the lesson reader screen to launch immediately
+  useEffect(() => {
+    if (params.launchFilename) {
+      launchDeck(params.launchFilename);
+    }
+  }, [params.launchFilename]);
+
   const handleDeleteFile = async () => {
     if (!targetFilename) return;
     try {
@@ -99,27 +102,15 @@ export default function QuestionSession() {
       if (cacheCheck.exists) await FileSystem.deleteAsync(cacheUri, { idempotent: true });
       setDeleteModalVisible(false);
       setTargetFilename(null);
-      if (readingFile?.filename === targetFilename) {
-        setReadingFile(null);
-        setReadingContent("");
-      }
       indexLocalFiles();
     } catch (e) { console.error(e); }
   };
 
-  // Callback to load file and activate Reading View
-  const openLessonReader = async (file: TargetFile) => {
-    setLoading(true);
-    try {
-      const content = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${file.filename}`);
-      setReadingFile(file);
-      setReadingContent(content);
-    } catch (e) {
-      console.error(e);
-      Alert.alert("Error", "Could not load lesson contents.");
-    } finally {
-      setLoading(false);
-    }
+  const openLessonReader = (file: TargetFile) => {
+    router.push({
+      pathname: '/read-view',
+      params: { filename: file.filename, lesson: file.lesson }
+    });
   };
 
   const launchDeck = async (filename: string) => {
@@ -185,7 +176,6 @@ export default function QuestionSession() {
       const parsedQuiz = JSON.parse(rawJsonText);
       let targetDeck: MCQQuestion[] = parsedQuiz.questions || parsedQuiz;
       
-      setReadingFile(null); 
       setActiveDeck(targetDeck);
 
     } catch (e) { 
@@ -198,7 +188,6 @@ export default function QuestionSession() {
           const parsedCache = JSON.parse(rawCachedText);
           let targetDeck: MCQQuestion[] = parsedCache.questions || parsedCache;
           
-          setReadingFile(null);
           setActiveDeck(targetDeck);
           Alert.alert("Offline Mode Active", "Loaded previously compiled questions from cache filesystem successfully.");
         } else {
@@ -270,45 +259,8 @@ export default function QuestionSession() {
         </View>
       )}
 
-      {/* 2. Reading View Container */}
-      {!loading && readingFile && !activeDeck && (
-        <View style={{ flex: 1 }}>
-          <View style={[styles.readerHeader, { borderBottomColor: theme.border }]}>
-            <TouchableOpacity 
-              style={styles.backBtn} 
-              onPress={() => { setReadingFile(null); setReadingContent(""); }}
-            >
-              <FontAwesome5 name="arrow-left" size={16} color={theme.text}/>
-              <Text style={[styles.lessonTitleLarge, { color: theme.text,marginHorizontal:10, }]} numberOfLines={1} ellipsizeMode='tail'>{readingFile.lesson}</Text>
-            </TouchableOpacity>
-
-            <View style={styles.readerActions}>
-              <TouchableOpacity 
-                style={[styles.actionChip, { backgroundColor: theme.buttons }]} 
-                onPress={() => launchDeck(readingFile.filename)}
-              >
-                <FontAwesome5 name="bolt" size={12} color={theme.accent} />
-                <Text style={[styles.actionChipText, { color: theme.accent }]}> Quiz</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.actionChip, { backgroundColor: theme.accent + '15' }]} 
-                onPress={() => copyToClipboard(readingFile.filename)}
-              >
-                <FontAwesome5 name="copy" size={12} color={theme.accent} />
-                <Text style={[styles.actionChipText, { color: theme.accent }]}>Copy</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
-            <Text style={[styles.noteContent, { color: theme.text }]}>{readingContent}</Text>
-          </ScrollView>
-        </View>
-      )}
-
-      {/* 3. Selection View */}
-      {!loading && !readingFile && !activeDeck && (
+      {/* 2. Selection View */}
+      {!loading && !activeDeck && (
         <ModuleSelector
           availableLessons={filesMeta}
           launchDeck={launchDeck}
@@ -318,7 +270,7 @@ export default function QuestionSession() {
         />
       )}
 
-      {/* 4. Quiz Game View */}
+      {/* 3. Quiz Game View */}
       {!loading && activeDeck && (
         <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
           <View>
@@ -360,16 +312,4 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { flex: 1, paddingHorizontal: 25 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  
-  // Reader View Styles
-  readerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, marginBottom: 15 },
-  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  backText: { fontSize: 15, fontWeight: '600' },
-  readerActions: { flexDirection: 'row', gap: 8 },
-  actionChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, gap: 6 },
-  actionChipText: { fontSize: 13, fontWeight: '700' },
-  metaLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
-  lessonTitleLarge: { fontSize: 20, fontWeight: '700', lineHeight: 30, textTransform: 'uppercase' },
-  divider: { height: 1, marginVertical: 16 },
-  noteContent: { fontSize: 15, lineHeight: 24, paddingBottom: 40 },
 });
