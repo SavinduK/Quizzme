@@ -19,12 +19,13 @@ interface TargetFile {
   lesson: string;
 }
 
-interface MCQQuestion {
+interface QuizQuestion {
   question: string;
-  options: string[];
-  correct_answer: string;
+  options?: string[];
+  correct_answer?: string; // Used for MCQ or pure Short Answer target text
   statements?: string[];
   answers?: boolean[];
+  explanation?: string;   // Added to store context for grading/showing short answers
 }
 
 const FALLBACK_GEMINI_API_KEY = ""; 
@@ -41,19 +42,26 @@ export default function QuestionSession() {
 
   const [filesMeta, setFilesMeta] = useState<TargetFile[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeDeck, setActiveDeck] = useState<MCQQuestion[] | null>(null);
+  const [activeDeck, setActiveDeck] = useState<QuizQuestion[] | null>(null);
+  
+  // Quiz Styles
   const [isTFQuiz, setIsTFQuiz] = useState<boolean>(false);
+  const [isSAQuiz, setIsSAQuiz] = useState<boolean>(false);
 
   // Single Question Display & Quiz State Indexes
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState<number>(0);
   const [runningScore, setRunningScore] = useState<number>(0);
   const [quizFinished, setQuizFinished] = useState<boolean>(false);
   
-  // Selection trackers
+  // Selection / Entry trackers
   const [chosenAnswer, setChosenAnswer] = useState<string | null>(null);
   const [tfSelections, setTfSelections] = useState<{ [key: number]: boolean | null }>({0: null, 1: null, 2: null, 3: null, 4: null});
   const [tfChecked, setTfChecked] = useState<boolean>(false);
   const [tfQuestionScore, setTfQuestionScore] = useState<number>(0); 
+  
+  // Short Answer Tracking
+  const [saInputText, setSaInputText] = useState<string>("");
+  const [saChecked, setSaChecked] = useState<boolean>(false);
 
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [targetFilename, setTargetFilename] = useState<string | null>(null);
@@ -84,7 +92,6 @@ export default function QuestionSession() {
 
   useFocusEffect(useCallback(() => { indexLocalFiles(); }, []));
 
-  // Catch dynamic forwards from the lesson reader screen to launch immediately
   useEffect(() => {
     if (params.launchFilename) {
       launchDeck(params.launchFilename);
@@ -122,6 +129,8 @@ export default function QuestionSession() {
     setTfSelections({0: null, 1: null, 2: null, 3: null, 4: null});
     setTfChecked(false);
     setTfQuestionScore(0);
+    setSaInputText("");
+    setSaChecked(false);
 
     const jsonCacheFilename = filename.replace('.txt', '.json');
     const specificCacheUri = `${CACHE_DIR}${jsonCacheFilename}`;
@@ -129,7 +138,7 @@ export default function QuestionSession() {
     try {
       let activeApiKey = FALLBACK_GEMINI_API_KEY;
       let targetCount = 5;
-      let targetStyle = 'MCQ';
+      let targetStyle = 'MCQ'; // Can be: 'MCQ', 'TF', or 'SA'
       let customPrompt = "";
 
       try {
@@ -138,7 +147,12 @@ export default function QuestionSession() {
           const lines = (await FileSystem.readAsStringAsync(KEY_FILE_URI)).split('\n');
           if (lines[0]) activeApiKey = lines[0].trim();
           if (lines[1]) targetCount = parseInt(lines[1].trim(), 10) || 5;
-          if (lines[2]) targetStyle = lines[2].trim() === 'TF' ? 'TF' : 'MCQ';
+          if (lines[2]) {
+            const parsedStyle = lines[2].trim().toUpperCase();
+            if (parsedStyle === 'TF') targetStyle = 'TF';
+            else if (parsedStyle === 'SA') targetStyle = 'SA';
+            else targetStyle = 'MCQ';
+          }
           if (lines[3]) customPrompt = lines[3].trim();
         }
       } catch (keyError) {
@@ -146,13 +160,18 @@ export default function QuestionSession() {
       }
 
       setIsTFQuiz(targetStyle === 'TF');
-      const targetStr = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${filename}`);
+      setIsSAQuiz(targetStyle === 'SA');
       
+      const targetStr = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${filename}`);
       let prompt = "";
+      
       if (targetStyle === 'MCQ') {
         prompt = `Based on the following source material text, generate exactly ${targetCount} multiple choice questions. Each question must have exactly 5 distinct options. Return the data strictly as a JSON object containing an array called "questions". Each item in the array must contain "question" (string), "options" (array of 5 strings), and "correct_answer" (string matching exactly one of the options).${customPrompt} \nSource material text:${targetStr}`;
-      } else {
+      } else if (targetStyle === 'TF') {
         prompt = `Based on the following source material text, generate exactly ${targetCount} True/False style questions. Each item must contain a header topic text called "question", and an array of exactly 5 distinct conceptual statements related to it. For each statement, provide its corresponding boolean true/false answer value. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string context", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false]}]}.${customPrompt} \nSource material text:${targetStr}`;
+      } else {
+        // Short Answer Generation Strategy
+        prompt = `Based on the following source material text, generate exactly ${targetCount} clear conceptual short answer questions. Return the data strictly as a JSON object containing an array called "questions". Each item must contain "question" (string), "correct_answer" (string representing the definitive brief answer key phrase), and "explanation" (string explaining the underlying core context completely).${customPrompt} \nSource material text:${targetStr}`;
       }
 
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
@@ -174,7 +193,7 @@ export default function QuestionSession() {
       await FileSystem.writeAsStringAsync(specificCacheUri, rawJsonText);
 
       const parsedQuiz = JSON.parse(rawJsonText);
-      let targetDeck: MCQQuestion[] = parsedQuiz.questions || parsedQuiz;
+      let targetDeck: QuizQuestion[] = parsedQuiz.questions || parsedQuiz;
       
       setActiveDeck(targetDeck);
 
@@ -186,7 +205,7 @@ export default function QuestionSession() {
         if (localCacheCheck.exists) {
           const rawCachedText = await FileSystem.readAsStringAsync(specificCacheUri);
           const parsedCache = JSON.parse(rawCachedText);
-          let targetDeck: MCQQuestion[] = parsedCache.questions || parsedCache;
+          let targetDeck: QuizQuestion[] = parsedCache.questions || parsedCache;
           
           setActiveDeck(targetDeck);
           Alert.alert("Offline Mode Active", "Loaded previously compiled questions from cache filesystem successfully.");
@@ -210,6 +229,8 @@ export default function QuestionSession() {
       setTfSelections({0: null, 1: null, 2: null, 3: null, 4: null});
       setTfChecked(false);
       setTfQuestionScore(0);
+      setSaInputText("");
+      setSaChecked(false);
     } else {
       setQuizFinished(true);
     }
@@ -296,6 +317,12 @@ export default function QuestionSession() {
                 handleNextQuestion={handleNextQuestion}
                 currentQuestionIdx={currentQuestionIdx}
                 totalQuestions={activeDeck.length}
+                // Short Answer bindings to pass down to your component UI logic
+                isSAQuiz={isSAQuiz}
+                saInputText={saInputText}
+                setSaInputText={setSaInputText}
+                saChecked={saChecked}
+                setSaChecked={setSaChecked}
               />
             )}
           </View>

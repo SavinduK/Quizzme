@@ -17,7 +17,8 @@ export default function Settings() {
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [qCount, setQCount] = useState<number>(5);
-  const [qStyle, setQStyle] = useState<'MCQ' | 'TF'>('MCQ');
+  // Extended type definition to include 'SA' (Short Answer)
+  const [qStyle, setQStyle] = useState<'MCQ' | 'TF' | 'SA'>('MCQ');
   const [customPrompt, setCustomPrompt] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -42,7 +43,12 @@ export default function Settings() {
         const lines = (await FileSystem.readAsStringAsync(KEY_FILE_URI)).split('\n');
         if (lines[0]) setApiKey(lines[0].trim());
         if (lines[1]) setQCount(parseInt(lines[1].trim(), 10) || 5);
-        if (lines[2]) setQStyle(lines[2].trim() === 'TF' ? 'TF' : 'MCQ');
+        if (lines[2]) {
+          const loadedStyle = lines[2].trim().toUpperCase();
+          if (loadedStyle === 'TF') setQStyle('TF');
+          else if (loadedStyle === 'SA') setQStyle('SA');
+          else setQStyle('MCQ');
+        }
         if (lines[3]) setCustomPrompt(lines[3].trim());
       }
     } catch (e) {
@@ -162,7 +168,7 @@ export default function Settings() {
               </View>
             </View>
 
-            {/* QUESTION STYLE SELECTOR */}
+            {/* QUESTION STYLE SELECTOR (Updated with Short Answer button option) */}
             <View style={styles.settingRow}>
               <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Question Type</Text>
               <View style={styles.buttonOptionRow}>
@@ -177,6 +183,7 @@ export default function Settings() {
                 >
                   <Text style={[styles.normalOptionText, { color: qStyle === 'MCQ' ? '#fff' : theme.title }]}>MCQ</Text>
                 </Pressable>
+                
                 <Pressable
                   style={[
                     styles.normalOptionBtn, 
@@ -187,6 +194,18 @@ export default function Settings() {
                   onPress={() => setQStyle('TF')}
                 >
                   <Text style={[styles.normalOptionText, { color: qStyle === 'TF' ? '#fff' : theme.title }]}>True / False</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[
+                    styles.normalOptionBtn, 
+                    styles.flexButton,
+                    { borderColor: theme.border },
+                    qStyle === 'SA' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                  ]}
+                  onPress={() => setQStyle('SA')}
+                >
+                  <Text style={[styles.normalOptionText, { color: qStyle === 'SA' ? '#fff' : theme.title }]}>Short Ans</Text>
                 </Pressable>
               </View>
             </View>
@@ -293,8 +312,6 @@ const styles = StyleSheet.create({
   flexInput: { flex: 1, height: '100%', fontSize: 14 },
   eyeBtn: { height: '100%', paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },
   textArea: { minHeight: 80, borderRadius: 14, borderWidth: 1, padding: 14, fontSize: 14, lineHeight: 20 },
-  
-  // Adjusted for Single Line Layout
   buttonOptionRow: { 
     flexDirection: 'row', 
     gap: 8, 
@@ -314,11 +331,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.01)'
   },
   normalOptionText: { fontWeight: '600', fontSize: 14 },
-  
   saveBtn: { height: 48, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12 },
   saveBtnText: { fontWeight: '700', fontSize: 15 },
-
-  // Custom Modal Styling
   modalOverlay: { 
     flex: 1, 
     backgroundColor: 'rgba(0,0,0,0.4)', 

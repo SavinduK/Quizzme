@@ -72,26 +72,36 @@ export default function LessonReaderScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.readerHeader, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <FontAwesome5 name="arrow-left" size={16} color={theme.text} />
-          <Text style={[styles.lessonTitleLarge, { color: theme.text, marginHorizontal: 10 }]} numberOfLines={1} ellipsizeMode='tail'>
-            {params.lesson || "View Lesson"}
-          </Text>
-        </TouchableOpacity>
+     <View style={[styles.readerHeader, { borderBottomColor: theme.border }]}>
+     <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
 
-        <View style={styles.readerActions}>
-          <TouchableOpacity style={[styles.actionChip, { backgroundColor: theme.buttons }]} onPress={handleLaunchQuiz}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <FontAwesome5 name="arrow-left" size={16} color={theme.text} />
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginRight: 10 }}>
+        <Text 
+            style={[styles.lessonTitleLarge, { color: theme.text, marginHorizontal: 10 }]} 
+            numberOfLines={1} 
+            ellipsizeMode='tail'
+        >
+            {params.lesson || "View Lesson"}
+        </Text>
+        </View>
+        
+        <View style={[styles.readerActions, { flexDirection: 'row', alignItems: 'center' }]}>
+        <TouchableOpacity style={[styles.actionChip, { backgroundColor: theme.buttons }]} onPress={handleLaunchQuiz}>
             <FontAwesome5 name="bolt" size={12} color={theme.accent} />
             <Text style={[styles.actionChipText, { color: theme.accent }]}> Quiz</Text>
-          </TouchableOpacity>
+        </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.actionChip, { backgroundColor: theme.accent + '15' }]} onPress={copyToClipboard}>
+        <TouchableOpacity style={[styles.actionChip, { backgroundColor: theme.accent + '15' }]} onPress={copyToClipboard}>
             <FontAwesome5 name="copy" size={12} color={theme.accent} />
             <Text style={[styles.actionChipText, { color: theme.accent }]}>Copy</Text>
-          </TouchableOpacity>
+        </TouchableOpacity>
         </View>
-      </View>
+
+    </View>
+    </View>
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         <Markdown 
