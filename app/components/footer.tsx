@@ -40,6 +40,21 @@ export default function Footer() {
         <Text style={[styles.tabText, { color: isActive('/quiz-session') ? theme.accent : theme.subtext }]}>Lessions</Text>
       </Pressable>
 
+      {/* WORK TRACKER TAB */}
+      <Pressable 
+        style={styles.tab} 
+        onPress={() => router.replace('/tracker')}
+      >
+        <FontAwesome5 
+          name="calendar-alt" 
+          size={18} 
+          color={isActive('/tracker') ? theme.accent : theme.subtext} 
+        />
+        <Text style={[styles.tabText, { color: isActive('/tracker') ? theme.accent : theme.subtext }]}>
+          Tracker
+        </Text>
+      </Pressable>
+
       {/* SETTINGS TAB */}
       <Pressable 
         style={styles.tab} 
