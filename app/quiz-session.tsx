@@ -19,13 +19,22 @@ interface TargetFile {
   lesson: string;
 }
 
+interface SeqSubQuestion {
+  sub_question: string;
+  marks?: number;
+  answer_key: string;
+}
+
 interface QuizQuestion {
   question: string;
   options?: string[];
   correct_answer?: string; // Used for MCQ or pure Short Answer target text
   statements?: string[];
   answers?: boolean[];
-  explanation?: string;   // Added to store context for grading/showing short answers
+  explanation?: string;   // Context for grading/showing short answers
+  // SEQ (Structured Essay Question) fields
+  sub_questions?: SeqSubQuestion[];
+  model_answer?: string;  // Full model answer or main marking scheme
 }
 
 const FALLBACK_GEMINI_API_KEY = ""; 
@@ -47,6 +56,7 @@ export default function QuestionSession() {
   // Quiz Styles
   const [isTFQuiz, setIsTFQuiz] = useState<boolean>(false);
   const [isSAQuiz, setIsSAQuiz] = useState<boolean>(false);
+  const [isSEQQuiz, setIsSEQQuiz] = useState<boolean>(false);
 
   // Single Question Display & Quiz State Indexes
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState<number>(0);
@@ -62,6 +72,10 @@ export default function QuestionSession() {
   // Short Answer Tracking
   const [saInputText, setSaInputText] = useState<string>("");
   const [saChecked, setSaChecked] = useState<boolean>(false);
+
+  // Structured Essay Question (SEQ) Tracking
+  const [showSeqAnswer, setShowSeqAnswer] = useState<boolean>(false);
+  const [seqUserNotes, setSeqUserNotes] = useState<string>("");
 
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [targetFilename, setTargetFilename] = useState<string | null>(null);
@@ -120,17 +134,23 @@ export default function QuestionSession() {
     });
   };
 
-  const launchDeck = async (filename: string) => {
-    setLoading(true);
-    setCurrentQuestionIdx(0);
-    setRunningScore(0);
-    setQuizFinished(false);
+  const resetQuestionStates = () => {
     setChosenAnswer(null);
     setTfSelections({0: null, 1: null, 2: null, 3: null, 4: null});
     setTfChecked(false);
     setTfQuestionScore(0);
     setSaInputText("");
     setSaChecked(false);
+    setShowSeqAnswer(false);
+    setSeqUserNotes("");
+  };
+
+  const launchDeck = async (filename: string) => {
+    setLoading(true);
+    setCurrentQuestionIdx(0);
+    setRunningScore(0);
+    setQuizFinished(false);
+    resetQuestionStates();
 
     const jsonCacheFilename = filename.replace('.txt', '.json');
     const specificCacheUri = `${CACHE_DIR}${jsonCacheFilename}`;
@@ -138,7 +158,7 @@ export default function QuestionSession() {
     try {
       let activeApiKey = FALLBACK_GEMINI_API_KEY;
       let targetCount = 5;
-      let targetStyle = 'MCQ'; // Can be: 'MCQ', 'TF', or 'SA'
+      let targetStyle = 'MCQ'; // Can be: 'MCQ', 'TF', 'SA', or 'SEQ'
       let customPrompt = "";
 
       try {
@@ -151,6 +171,7 @@ export default function QuestionSession() {
             const parsedStyle = lines[2].trim().toUpperCase();
             if (parsedStyle === 'TF') targetStyle = 'TF';
             else if (parsedStyle === 'SA') targetStyle = 'SA';
+            else if (parsedStyle === 'SEQ') targetStyle = 'SEQ';
             else targetStyle = 'MCQ';
           }
           if (lines[3]) customPrompt = lines[3].trim();
@@ -161,6 +182,7 @@ export default function QuestionSession() {
 
       setIsTFQuiz(targetStyle === 'TF');
       setIsSAQuiz(targetStyle === 'SA');
+      setIsSEQQuiz(targetStyle === 'SEQ');
       
       const targetStr = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${filename}`);
       let prompt = "";
@@ -169,10 +191,29 @@ export default function QuestionSession() {
         prompt = `Based on the following source material text, generate exactly ${targetCount} multiple choice questions. Each question must have exactly 5 distinct options. Return the data strictly as a JSON object containing an array called "questions". Each item in the array must contain "question" (string), "options" (array of 5 strings), and "correct_answer" (string matching exactly one of the options).${customPrompt} \nSource material text:${targetStr}`;
       } else if (targetStyle === 'TF') {
         prompt = `Based on the following source material text, generate exactly ${targetCount} True/False style questions. Each item must contain a header topic text called "question", and an array of exactly 5 distinct conceptual statements related to it. For each statement, provide its corresponding boolean true/false answer value. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string context", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false]}]}.${customPrompt} \nSource material text:${targetStr}`;
-      } else {
-        // Short Answer Generation Strategy
+      } else if (targetStyle === 'SA') {
         prompt = `Based on the following source material text, generate exactly ${targetCount} clear conceptual short answer questions. Return the data strictly as a JSON object containing an array called "questions". Each item must contain "question" (string), "correct_answer" (string representing the definitive brief answer key phrase), and "explanation" (string explaining the underlying core context completely).${customPrompt} \nSource material text:${targetStr}`;
-      }
+      } else {
+        // Structured Essay Questions (SEQ) Prompt Strategy
+        prompt = `Based on the complete source material provided, construct ${targetCount} comprehensive Structured Essay Questions (SEQs) that systematically cover the entire lecture content. 
+        Each SEQ must revolve around a core topic from the lecture and contain 2 to 4 sub-questions ranging from short recall/definitions to detailed analytical essay prompts.
+        Provide exhaustive model answers and structured marking rubrics for every sub-question.
+
+        Return strictly a JSON object with a key "questions" containing an array. Each object in "questions" must match this structure:
+        {
+          "question": "Main Scenario / Master Essay Topic Heading",
+          "sub_questions": [
+            {
+              "sub_question": "Sub-question text (e.g., (a) Define X...)",
+              "marks": 5,
+              "answer_key": "Detailed marking scheme/answer points for this sub-question"
+            }
+          ],
+          "model_answer": "Complete synthesis or summary essay answer covering all parts"
+        }
+        ${customPrompt}
+        \nSource material text:${targetStr}`;
+              }
 
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
         method: 'POST',
@@ -225,12 +266,7 @@ export default function QuestionSession() {
     if (!activeDeck) return;
     if (currentQuestionIdx + 1 < activeDeck.length) {
       setCurrentQuestionIdx(p => p + 1);
-      setChosenAnswer(null);
-      setTfSelections({0: null, 1: null, 2: null, 3: null, 4: null});
-      setTfChecked(false);
-      setTfQuestionScore(0);
-      setSaInputText("");
-      setSaChecked(false);
+      resetQuestionStates();
     } else {
       setQuizFinished(true);
     }
@@ -261,7 +297,9 @@ export default function QuestionSession() {
     setTfChecked(true);
   };
 
-  const maxPossibleScore = activeDeck ? (isTFQuiz ? activeDeck.length * 5 : activeDeck.length) : 0;
+  const maxPossibleScore = activeDeck 
+    ? (isTFQuiz ? activeDeck.length * 5 : (isSEQQuiz ? activeDeck.length * 10 : activeDeck.length)) 
+    : 0;
 
   const copyToClipboard = async (filename: string) => {
     const targetStr = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${filename}`);
@@ -270,13 +308,15 @@ export default function QuestionSession() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <Header title="Lecture Questions" onRightButtonPress={() => router.push('/add-questions')} />
+      <Header title="Lectures" onRightButtonPress={() => router.push('/add-questions')} />
 
       {/* 1. Global Loading State */}
       {loading && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.accent} />
-          <Text style={{ color: theme.subtext, marginTop: 12, fontWeight: '500' }}>Compiling Questions...</Text>
+          <Text style={{ color: theme.subtext, marginTop: 12, fontWeight: '500' }}>
+            Compiling Lecture Questions & Answer Keys...
+          </Text>
         </View>
       )}
 
@@ -291,7 +331,7 @@ export default function QuestionSession() {
         />
       )}
 
-      {/* 3. Quiz Game View */}
+      {/* 3. Quiz / SEQ Practice View */}
       {!loading && activeDeck && (
         <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
           <View>
@@ -317,12 +357,18 @@ export default function QuestionSession() {
                 handleNextQuestion={handleNextQuestion}
                 currentQuestionIdx={currentQuestionIdx}
                 totalQuestions={activeDeck.length}
-                // Short Answer bindings to pass down to your component UI logic
+                // Short Answer bindings
                 isSAQuiz={isSAQuiz}
                 saInputText={saInputText}
                 setSaInputText={setSaInputText}
                 saChecked={saChecked}
                 setSaChecked={setSaChecked}
+                // SEQ (Structured Essay Question) bindings
+                isSEQQuiz={isSEQQuiz}
+                showSeqAnswer={showSeqAnswer}
+                setShowSeqAnswer={setShowSeqAnswer}
+                seqUserNotes={seqUserNotes}
+                setSeqUserNotes={setSeqUserNotes}
               />
             )}
           </View>

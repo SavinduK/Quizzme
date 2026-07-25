@@ -3,6 +3,12 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
 import { Colors } from '../constants/theme';
 
+interface SeqSubQuestion {
+  sub_question: string;
+  marks?: number;
+  answer_key: string;
+}
+
 interface QuizCardProps {
   item: any;
   chosenAnswer: string | null;
@@ -19,19 +25,27 @@ interface QuizCardProps {
   currentQuestionIdx: number;
   totalQuestions: number;
   
-  // Short Answer Props passed down from QuestionSession container
+  // Short Answer Props
   isSAQuiz?: boolean;
   saInputText?: string;
   setSaInputText?: (text: string) => void;
   saChecked?: boolean;
   setSaChecked?: (checked: boolean) => void;
+
+  // SEQ (Structured Essay Question) Props
+  isSEQQuiz?: boolean;
+  showSeqAnswer?: boolean;
+  setShowSeqAnswer?: (show: boolean) => void;
+  seqUserNotes?: string;
+  setSeqUserNotes?: (notes: string) => void;
 }
 
 export default function QuizCard({
   item, chosenAnswer, setChosenAnswer, setRunningScore, runningScore, maxPossibleScore,
   tfSelections, setTfSelections, tfChecked, tfQuestionScore, evaluateTfQuestion,
   handleNextQuestion, currentQuestionIdx, totalQuestions,
-  isSAQuiz = false, saInputText = "", setSaInputText, saChecked = false, setSaChecked
+  isSAQuiz = false, saInputText = "", setSaInputText, saChecked = false, setSaChecked,
+  isSEQQuiz = false, showSeqAnswer = false, setShowSeqAnswer, seqUserNotes = "", setSeqUserNotes
 }: QuizCardProps) {
   const isTFStyle = Array.isArray(item.statements);
   const theme = Colors[useColorScheme() ?? 'light'];
@@ -52,6 +66,12 @@ export default function QuizCard({
     if (isCorrect) {
       setRunningScore(p => p + 1);
     }
+    handleNextQuestion();
+  };
+
+  // Handles awarding partial/full marks for SEQ self-assessment
+  const handleGradeSEQ = (awardedMarks: number) => {
+    setRunningScore(p => p + awardedMarks);
     handleNextQuestion();
   };
 
@@ -79,13 +99,13 @@ export default function QuizCard({
         </View>
       </View>
 
-      {/* QUESTION SECTION */}
+      {/* QUESTION SECTION HEADING */}
       <Text style={[styles.quizQuestion, { color: theme.title }]}>
         {currentQuestionIdx + 1}. {item.question}
       </Text>
       
       {/* 1. STANDARD MCQ */}
-      {!isTFStyle && !isSAQuiz && item.options?.map((option: string, oIdx: number) => {
+      {!isTFStyle && !isSAQuiz && !isSEQQuiz && item.options?.map((option: string, oIdx: number) => {
         const isSelected = chosenAnswer === option;
         const isCorrect = option === item.correct_answer;
         let optionBg = 'transparent';
@@ -118,7 +138,7 @@ export default function QuizCard({
       })}
 
       {/* 2. TRUE / FALSE MULTI-STATEMENT */}
-      {isTFStyle && !isSAQuiz && item.statements?.map((statement: string, sIdx: number) => {
+      {isTFStyle && !isSAQuiz && !isSEQQuiz && item.statements?.map((statement: string, sIdx: number) => {
         const currentSelection = tfSelections[sIdx];
         const correctBool = item.answers?.[sIdx];
         let statementBorder = theme.border;
@@ -160,7 +180,7 @@ export default function QuizCard({
       })}
 
       {/* 3. SHORT ANSWER SECTION */}
-      {isSAQuiz && (
+      {isSAQuiz && !isSEQQuiz && (
         <View style={styles.saContainer}>
           <TextInput
             style={[styles.saTextInput, { color: theme.title, borderColor: theme.border, backgroundColor: theme.background }]}
@@ -189,8 +209,92 @@ export default function QuizCard({
         </View>
       )}
 
+      {/* 4. STRUCTURED ESSAY QUESTION (SEQ) SECTION */}
+      {isSEQQuiz && (
+        <View style={styles.seqContainer}>
+          
+          {/* Sub-Questions Breakdowns */}
+          {item.sub_questions?.map((sq: SeqSubQuestion, sqIdx: number) => (
+            <View key={sqIdx} style={[styles.seqSubCard, { borderColor: theme.border, backgroundColor: theme.background }]}>
+              <View style={styles.seqSubHeaderRow}>
+                <Text style={[styles.seqSubTitle, { color: theme.title }]}>
+                  {sq.sub_question}
+                </Text>
+                {sq.marks !== undefined && (
+                  <View style={[styles.seqMarkBadge, { backgroundColor: 'rgba(79, 70, 229, 0.12)' }]}>
+                    <Text style={[styles.seqMarkText, { color: theme.accent }]}>[{sq.marks} Marks]</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Reveal Sub-Question Marking Key when toggled */}
+              {showSeqAnswer && (
+                <View style={[styles.seqAnswerKeyBox, { borderColor: theme.accent }]}>
+                  <Text style={[styles.saLabelText, { color: theme.accent }]}>Sub-Question Answer Key:</Text>
+                  <Text style={[styles.seqAnswerKeyText, { color: theme.title }]}>{sq.answer_key}</Text>
+                </View>
+              )}
+            </View>
+          ))}
+
+          {/* User Notes Input Workspace */}
+          <Text style={[styles.saLabelText, { color: theme.subtext, marginTop: 12 }]}>Draft Your Essay Response / Rough Notes:</Text>
+          <TextInput
+            style={[styles.seqNotesInput, { color: theme.title, borderColor: theme.border, backgroundColor: theme.background }]}
+            placeholder="Write key outline points or complete essay response here before toggling the model answer..."
+            placeholderTextColor={theme.subtext}
+            multiline
+            numberOfLines={5}
+            value={seqUserNotes}
+            onChangeText={setSeqUserNotes}
+          />
+
+          {/* Master Model Answer Toggle Block */}
+          {showSeqAnswer && item.model_answer && (
+            <View style={[styles.seqModelAnswerCard, { backgroundColor: 'rgba(79, 70, 229, 0.05)', borderColor: theme.accent }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                <FontAwesome5 name="book-reader" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                <Text style={[styles.saLabelText, { color: theme.accent, marginBottom: 0 }]}>Complete Model Answer Synthesis:</Text>
+              </View>
+              <Text style={[styles.saExplanationText, { color: theme.title, lineHeight: 22 }]}>{item.model_answer}</Text>
+            </View>
+          )}
+
+          {/* Toggle Answer Switch Button */}
+          <Pressable 
+            style={[styles.seqToggleBtn, { backgroundColor: showSeqAnswer ? theme.background : theme.buttons, borderColor: theme.accent }]} 
+            onPress={() => setShowSeqAnswer && setShowSeqAnswer(!showSeqAnswer)}
+          >
+            <FontAwesome5 name={showSeqAnswer ? "eye-slash" : "eye"} size={14} color={theme.accent} style={{ marginRight: 8 }} />
+            <Text style={[styles.submitActionBtnText, { color: theme.accent }]}>
+              {showSeqAnswer ? "Hide Model Answer" : "Toggle & Show Full Model Answer"}
+            </Text>
+          </Pressable>
+
+          {/* SEQ Self-Assessment Marking Bar */}
+          {showSeqAnswer && (
+            <View style={{ marginTop: 16 }}>
+              <Text style={[styles.saLabelText, { color: theme.title, textAlign: 'center', marginBottom: 8 }]}>
+                Self-Grade Your Response (Out of 10 Marks):
+              </Text>
+              <View style={styles.seqMarkingBar}>
+                {[0, 3, 5, 7, 10].map((mark) => (
+                  <Pressable
+                    key={mark}
+                    style={[styles.seqMarkOptionBtn, { borderColor: theme.accent, backgroundColor: theme.background }]}
+                    onPress={() => handleGradeSEQ(mark)}
+                  >
+                    <Text style={[styles.seqMarkOptionText, { color: theme.accent }]}>+{mark}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+
       {/* FOOTER ACTIONS */}
-      {isTFStyle && tfChecked && !isSAQuiz && (
+      {isTFStyle && tfChecked && !isSAQuiz && !isSEQQuiz && (
         <View style={[styles.tfQuestionScoreBadge, { backgroundColor: theme.background }]}>
           <Text style={[styles.tfQuestionScoreText, { color: theme.title }]}>
             Question Marks: <Text style={{ color: theme.accent, fontWeight: '800' }}>+{tfQuestionScore} / 5</Text>
@@ -198,20 +302,20 @@ export default function QuizCard({
         </View>
       )}
 
-      {isTFStyle && !tfChecked && !isSAQuiz && (
+      {isTFStyle && !tfChecked && !isSAQuiz && !isSEQQuiz && (
         <Pressable style={[styles.submitActionBtn, { backgroundColor: theme.buttons, borderWidth: 1, borderColor: theme.accent }]} onPress={evaluateTfQuestion}>
           <Text style={[styles.submitActionBtnText, { color: theme.accent }]}>Check Statements</Text>
         </Pressable>
       )}
 
-      {isSAQuiz && !saChecked && (
+      {isSAQuiz && !saChecked && !isSEQQuiz && (
         <Pressable style={[styles.submitActionBtn, { backgroundColor: theme.buttons, borderWidth: 1, borderColor: theme.accent }]} onPress={checkShortAnswer}>
           <Text style={[styles.submitActionBtnText, { color: theme.accent }]}>Reveal Solution</Text>
         </Pressable>
       )}
 
       {/* Next controls for MCQ / TF */}
-      {((!isTFStyle && !isSAQuiz && chosenAnswer) || (isTFStyle && !isSAQuiz && tfChecked)) && (
+      {((!isTFStyle && !isSAQuiz && !isSEQQuiz && chosenAnswer) || (isTFStyle && !isSAQuiz && !isSEQQuiz && tfChecked)) && (
         <Pressable style={[styles.submitActionBtn, { backgroundColor: theme.buttons, borderColor: theme.accent, borderWidth: 1 }]} onPress={handleNextQuestion}>
           <Text style={[styles.submitActionBtnText, { color: theme.accent }]}>
             {currentQuestionIdx + 1 === totalQuestions ? "View Final Results" : "Next Question"}
@@ -221,7 +325,7 @@ export default function QuizCard({
       )}
 
       {/* Grading next steps for Short Answer */}
-      {isSAQuiz && saChecked && (
+      {isSAQuiz && saChecked && !isSEQQuiz && (
         <View style={styles.saSelfGradeRow}>
           <Pressable 
             style={[styles.saGradeBtn, { backgroundColor: 'rgba(248, 113, 113, 0.15)', borderColor: '#f87171' }]} 
@@ -285,5 +389,21 @@ const styles = StyleSheet.create({
   saExplanationText: { fontSize: 14, lineHeight: 20 },
   saSelfGradeRow: { flexDirection: 'row', gap: 12, marginTop: 16, width: '100%' },
   saGradeBtn: { flex: 1, height: 48, borderRadius: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  saGradeBtnText: { fontWeight: '700', fontSize: 14 }
+  saGradeBtnText: { fontWeight: '700', fontSize: 14 },
+
+  // SEQ Specific Styles
+  seqContainer: { width: '100%', marginTop: 4 },
+  seqSubCard: { padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 10 },
+  seqSubHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  seqSubTitle: { flex: 1, fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  seqMarkBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  seqMarkText: { fontSize: 11, fontWeight: '700' },
+  seqAnswerKeyBox: { marginTop: 10, paddingTop: 10, borderTopWidth: 1 },
+  seqAnswerKeyText: { fontSize: 13, lineHeight: 18, marginTop: 2 },
+  seqNotesInput: { borderWidth: 1, borderRadius: 12, padding: 12, textAlignVertical: 'top', fontSize: 13, minHeight: 90, marginBottom: 12 },
+  seqModelAnswerCard: { padding: 14, borderRadius: 12, borderWidth: 1, marginBottom: 12 },
+  seqToggleBtn: { height: 46, borderRadius: 12, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  seqMarkingBar: { flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
+  seqMarkOptionBtn: { flex: 1, height: 42, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  seqMarkOptionText: { fontSize: 13, fontWeight: '800' }
 });

@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, SUBJECT_PALETTES } from '../constants/theme';
+import { useModuleFilters } from '../context/filter-context'; // Import context hook
 
-// Helper to consistently assign one of the 6 palettes based on the subject name string
 const getSubjectPalette = (subject: string) => {
   if (!subject) return SUBJECT_PALETTES[0];
   let hash = 0;
@@ -33,12 +33,17 @@ interface Lesson {
   term: string;
 }
 
+interface MenuTarget {
+  lesson: Lesson;
+  position: { top: number; right: number };
+}
+
 interface ModuleSelectorProps {
-  availableLessons: Lesson[]; // Raw builds array directly from indexLocalFiles
+  availableLessons: Lesson[];
   launchDeck: (filename: string) => void;
   copyToClipboard: (filename: string) => void;
   onSelectDeleteTarget: (filename: string) => void;
-  onSelectLesson: (file: Lesson) => void; // Added callback to load notes
+  onSelectLesson: (file: Lesson) => void;
 }
 
 export default function ModuleSelector({
@@ -50,11 +55,19 @@ export default function ModuleSelector({
 }: ModuleSelectorProps) {
   const theme = Colors[useColorScheme() ?? 'light'];
 
-  // --- INTERNAL COMPONENT STATE ---
+  // --- PERSISTENT FILTERS FROM CONTEXT ---
+  const {
+    selectedSubject,
+    setSelectedSubject,
+    selectedTerm,
+    setSelectedTerm,
+    resetFilters,
+  } = useModuleFilters();
+
+  // --- LOCAL UI STATE ONLY ---
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
-  const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [activeMenu, setActiveMenu] = useState<MenuTarget | null>(null);
 
   // --- DYNAMIC DATA PARSING FOR FILTERS ---
   const { uniqueSubjects, uniqueTerms } = useMemo(() => {
@@ -92,10 +105,16 @@ export default function ModuleSelector({
 
   const hasFilter = selectedSubject || selectedTerm;
 
-  // Clear helper to wipe filters back to default
-  const resetFilters = () => {
-    setSelectedSubject(null);
-    setSelectedTerm(null);
+  const handleOpenMenu = (les: Lesson, event: any) => {
+    event.target.measureInWindow((x: number, y: number, width: number, height: number) => {
+      setActiveMenu({
+        lesson: les,
+        position: {
+          top: y + height + 4,
+          right: 20,
+        },
+      });
+    });
   };
 
   return (
@@ -131,7 +150,6 @@ export default function ModuleSelector({
 
       {/* Primary Module Feed List */}
       <ScrollView contentContainerStyle={styles.feedBody} showsVerticalScrollIndicator={false}>
-
         {displayedLessons.length === 0 ? (
           <View style={styles.emptyContainer}>
             <FontAwesome5 name="folder-open" size={40} color={theme.border} style={{ marginBottom: 12 }} />
@@ -144,10 +162,8 @@ export default function ModuleSelector({
             const palette = getSubjectPalette(les.subject);
             return (
               <View key={les.filename} style={[styles.lessonRowContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                {/* Muted background colored strip on Left edge */}
                 <View style={[styles.cardAccentBar, { backgroundColor: palette.bg }]} />
                 
-                {/* Main Card Pressable - Triggers Note Reading View */}
                 <Pressable style={styles.lessonPressable} onPress={() => onSelectLesson(les)}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
                     <Text style={[styles.lessonTitle, { color: theme.title }]}>{les.lesson}</Text>
@@ -163,32 +179,19 @@ export default function ModuleSelector({
                   </View>
                 </Pressable>
 
-                {/* Action Buttons Group */}
                 <View style={styles.actionButtonsGroup}>
-                  {/* Generate Questions Button (In front of Copy) */}
                   <Pressable 
-                    style={[styles.iconIconButton,]} 
+                    style={styles.iconIconButton} 
                     onPress={() => launchDeck(les.filename)}
                   >
                     <FontAwesome5 name="bolt" size={16} color={theme.accent} />
                   </Pressable>
 
-                  {/* Lesson Summary Screen Button */}
-                    <Pressable 
-                      style={styles.iconIconButton} 
-                      onPress={() => router.push({
-                        pathname: '/summary',
-                        params: { filename: les.filename, lesson: les.lesson }
-                      })}>
-                      <FontAwesome5 name="file-alt" size={16} color='#93C5fd' />
-                    </Pressable>
-
-                  {/* Delete Button */}
-                  <Pressable
-                    style={styles.deleteBtn}
-                    onPress={() => onSelectDeleteTarget(les.filename)}
+                  <Pressable 
+                    style={styles.iconIconButton} 
+                    onPress={(e) => handleOpenMenu(les, e)}
                   >
-                    <FontAwesome5 name="trash" size={16} color={theme.delete} />
+                    <FontAwesome5 name="ellipsis-v" size={15} color={theme.title} />
                   </Pressable>
                 </View>
               </View>
@@ -197,7 +200,70 @@ export default function ModuleSelector({
         )}
       </ScrollView>
 
-      {/* --- INTEGRATED FILTER PANEL MODAL (BOTTOM PANEL SLIDEOUT) --- */}
+      {/* --- COMPACT ANCHORED DROPDOWN POPOVER --- */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={activeMenu !== null}
+        onRequestClose={() => setActiveMenu(null)}
+      >
+        <Pressable style={styles.popoverOverlay} onPress={() => setActiveMenu(null)}>
+          {activeMenu && (
+            <View
+              style={[
+                styles.compactDropdownCard,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
+                  top: activeMenu.position.top,
+                  right: activeMenu.position.right,
+                },
+              ]}
+            >
+              <Pressable
+                style={styles.compactMenuItem}
+                onPress={() => {
+                  const target = activeMenu.lesson;
+                  setActiveMenu(null);
+                  router.push({
+                    pathname: '/summary',
+                    params: { filename: target.filename, lesson: target.lesson },
+                  });
+                }}
+              >
+                <FontAwesome5 name="file-alt" size={14} color="#93C5FD" style={styles.compactIcon} />
+                <Text style={[styles.compactMenuText, { color: theme.title }]}>Summary</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.compactMenuItem}
+                onPress={() => {
+                  const target = activeMenu.lesson;
+                  setActiveMenu(null);
+                  copyToClipboard(target.filename);
+                }}
+              >
+                <FontAwesome5 name="share-alt" size={14} color={theme.accent} style={styles.compactIcon} />
+                <Text style={[styles.compactMenuText, { color: theme.title }]}>Share</Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.compactMenuItem, { borderBottomWidth: 0 }]}
+                onPress={() => {
+                  const target = activeMenu.lesson;
+                  setActiveMenu(null);
+                  onSelectDeleteTarget(target.filename);
+                }}
+              >
+                <FontAwesome5 name="trash" size={14} color={theme.delete} style={styles.compactIcon} />
+                <Text style={[styles.compactMenuText, { color: theme.delete }]}>Delete</Text>
+              </Pressable>
+            </View>
+          )}
+        </Pressable>
+      </Modal>
+
+      {/* --- INTEGRATED FILTER PANEL MODAL --- */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -209,7 +275,6 @@ export default function ModuleSelector({
           
           <View style={[styles.modalSheet, { backgroundColor: theme.card }]}>
             <SafeAreaView>
-              {/* Header */}
               <View style={[styles.sheetHeader, { borderBottomColor: theme.border }]}>
                 <Text style={[styles.sheetTitle, { color: theme.title }]}>Filter Options</Text>
                 <Pressable onPress={() => setFilterModalVisible(false)} style={styles.sheetCloseBtn}>
@@ -218,7 +283,6 @@ export default function ModuleSelector({
               </View>
 
               <ScrollView style={styles.sheetContentContainer}>
-                {/* Subject Block Section */}
                 <Text style={[styles.sheetGroupLabel, { color: theme.subtext }]}>Subject</Text>
                 <View style={styles.chipWrapperRow}>
                   <Pressable
@@ -241,7 +305,6 @@ export default function ModuleSelector({
                   })}
                 </View>
 
-                {/* Term Block Section */}
                 <Text style={[styles.sheetGroupLabel, { color: theme.subtext, marginTop: 24 }]}>Term</Text>
                 <View style={styles.chipWrapperRow}>
                   <Pressable
@@ -264,7 +327,6 @@ export default function ModuleSelector({
                   })}
                 </View>
 
-                {/* Bottom Action Footer buttons */}
                 <View style={styles.sheetFooterActions}>
                   <Pressable onPress={resetFilters} style={[styles.actionBtnSecondary, { borderColor: theme.border }]}>
                     <Text style={{ color: theme.title, fontWeight: '600' }}>Reset All</Text>
@@ -283,18 +345,14 @@ export default function ModuleSelector({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1,paddingVertical:10 },
-  searchBarRow: { flexDirection: 'row', paddingHorizontal: 20,paddingVertical:10, gap: 10 },
+  container: { flex: 1, paddingVertical: 10 },
+  searchBarRow: { flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 10, gap: 10 },
   searchContainer: { flex: 1, height: 48, borderRadius: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14 },
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1, fontSize: 15, height: '100%', paddingVertical: 0 },
   clearBtn: { padding: 4 },
   filterBtn: { width: 48, height: 48, borderRadius: 14, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
-  activeFilterBadgeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 22, marginBottom: 12 },
-  filterIndicatorText: { fontSize: 13, flex: 1 },
-  resetBadgeBtn: { marginLeft: 10, paddingVertical: 2, paddingHorizontal: 6 },
   feedBody: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 30 },
-  sectionLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 14 },
   lessonRowContainer: { 
     flexDirection: 'row', 
     alignItems: 'center', 
@@ -302,7 +360,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, 
     marginBottom: 16, 
     paddingRight: 12,
-    overflow: 'hidden' // Ensures the vertical strip corners conform correctly
+    overflow: 'hidden'
   },
   cardAccentBar: {
     width: 6,
@@ -312,10 +370,42 @@ const styles = StyleSheet.create({
   lessonTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4, lineHeight: 20, textTransform: 'uppercase' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   subjectText: { fontSize: 12, textTransform: 'capitalize', fontWeight: '500' },
-  actionButtonsGroup: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actionButtonsGroup: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   iconIconButton: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  deleteBtn: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   emptyContainer: { alignItems: 'center', marginTop: 50, paddingHorizontal: 40 },
+  popoverOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+  },
+  compactDropdownCard: {
+    position: 'absolute',
+    minWidth: 130,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+  },
+  compactMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  compactIcon: {
+    width: 18,
+    textAlign: 'center',
+    marginRight: 8,
+  },
+  compactMenuText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalDismissTapZone: { flex: 1 },
   modalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 20, maxHeight: '80%' },

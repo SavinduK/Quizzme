@@ -12,7 +12,7 @@ import { Colors } from './constants/theme';
 const CACHE_DIR = `${FileSystem.documentDirectory}cached-questions/`;
 const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
 
-type QuestionType = 'mcq' | 'tf';
+type QuestionType = 'mcq' | 'tf' | 'sa' | 'seq';
 
 export default function HomeFeed() {
   const router = useRouter();
@@ -119,13 +119,20 @@ export default function HomeFeed() {
 
               questionsList = questionsList.filter((q) => {
                 let qType = '';
-                if (Array.isArray(q.statements) && Array.isArray(q.answers)) {
+
+                // Structural inference for each prompt archetype
+                if (Array.isArray(q.sub_questions)) {
+                  qType = 'seq';
+                } else if (Array.isArray(q.statements) && Array.isArray(q.answers)) {
                   qType = 'tf';
                 } else if (Array.isArray(q.options) && typeof q.correct_answer === 'string') {
                   qType = 'mcq';
+                } else if (q.explanation && typeof q.correct_answer === 'string') {
+                  qType = 'sa';
                 } else if (q.type) {
                   qType = q.type.toLowerCase();
                 }
+
                 return qType === selectedType.toLowerCase();
               });
 
@@ -200,11 +207,19 @@ export default function HomeFeed() {
 
   const hasActiveFilters = selectedSubject || selectedTerm || selectedType !== 'mcq';
   
+  // Maps question format string for readable context label
+  const formatLabelMap: Record<QuestionType, string> = {
+    mcq: 'MCQs',
+    tf: 'True / False',
+    sa: 'Short Answer',
+    seq: 'Structured Essay (SEQ)'
+  };
+
   // Creates a clean readable context banner string showing current config parameters
   const targetSummaryText = [
     selectedSubject ?? 'All Subjects',
     selectedTerm ?? 'All Terms',
-    selectedType === 'mcq' ? 'MCQs' : 'True/False'
+    formatLabelMap[selectedType]
   ].join(' • ');
 
   const maxPossibleScore = selectedType === 'tf' ? compiledPool.length * 5 : compiledPool.length;
@@ -218,7 +233,7 @@ export default function HomeFeed() {
       {/* Modern Control Row: Config Summary & Filter Settings Trigger Button */}
       <View style={styles.controlRow}>
         <View style={styles.summaryTextContainer}>
-          <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Current Session </Text>
+          <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Current Session</Text>
         </View>
 
         <Pressable
@@ -296,7 +311,7 @@ export default function HomeFeed() {
             <SafeAreaView edges={['bottom']}>
               {/* Drawer Header Area */}
               <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
-                <Text style={[styles.drawerTitle, { color: theme.title }]}>Quiz Generation Parameters</Text>
+                <Text style={[styles.drawerTitle, { color: theme.title }]}>Quiz Settings</Text>
                 <Pressable onPress={() => setFilterPanelVisible(false)} style={styles.drawerCloseBtn}>
                   <FontAwesome5 name="times" size={16} color={theme.title} />
                 </Pressable>
@@ -310,18 +325,33 @@ export default function HomeFeed() {
                     onPress={() => setSelectedType('mcq')}
                     style={[styles.filterChip, selectedType === 'mcq' ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
                   >
-                    <Text style={[styles.filterChipText, selectedType === 'mcq' ? { color: '#FFF' } : { color: theme.title }]}>Multiple Choice (MCQ)</Text>
+                    <Text style={[styles.filterChipText, selectedType === 'mcq' ? { color: '#FFF' } : { color: theme.title }]}>Multiple Choice</Text>
                   </Pressable>
+
                   <Pressable
                     onPress={() => setSelectedType('tf')}
                     style={[styles.filterChip, selectedType === 'tf' ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
                   >
-                    <Text style={[styles.filterChipText, selectedType === 'tf' ? { color: '#FFF' } : { color: theme.title }]}>True / False Matrix</Text>
+                    <Text style={[styles.filterChipText, selectedType === 'tf' ? { color: '#FFF' } : { color: theme.title }]}>True / False</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setSelectedType('sa')}
+                    style={[styles.filterChip, selectedType === 'sa' ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.filterChipText, selectedType === 'sa' ? { color: '#FFF' } : { color: theme.title }]}>Short Answer</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setSelectedType('seq')}
+                    style={[styles.filterChip, selectedType === 'seq' ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.filterChipText, selectedType === 'seq' ? { color: '#FFF' } : { color: theme.title }]}>Essay (SEQ)</Text>
                   </Pressable>
                 </View>
 
                 {/* 2. Academic Course Selection Map */}
-                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Subject Focus Area</Text>
+                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Subject</Text>
                 <View style={styles.chipClusterFlexRow}>
                   <Pressable
                     onPress={() => setSelectedSubject(null)}
@@ -344,7 +374,7 @@ export default function HomeFeed() {
                 </View>
 
                 {/* 3. Academic Term Interval Selection Map */}
-                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Term / Period</Text>
+                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Term</Text>
                 <View style={styles.chipClusterFlexRow}>
                   <Pressable
                     onPress={() => setSelectedTerm(null)}
@@ -360,7 +390,7 @@ export default function HomeFeed() {
                         onPress={() => setSelectedTerm(trm)}
                         style={[styles.filterChip, active ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
                       >
-                        <Text style={[styles.filterChipText, active ? { color: '#FFF' } : { color: theme.title }]}>{trm}</Text>
+                        <Text style={[styles.filterChipText, active ? { color: '#FFF' } : { color: theme.title }]}>Term {trm}</Text>
                       </Pressable>
                     );
                   })}
@@ -390,8 +420,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   controlRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 16, marginBottom: 5, gap: 12 },
   summaryTextContainer: { flex: 1 },
-  summaryLabel: { fontSize: 15, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
-  filterActionButton: { width: 44, height: 44, borderRadius: 12,  justifyContent: 'center', alignItems: 'center' },
+  summaryLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+  filterActionButton: { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
   scroll: { flex: 1, paddingHorizontal: 20 },
   emptyContainer: { alignItems: 'center', marginTop: 80, width: '100%', paddingHorizontal: 20 },
   emptyText: { marginTop: 15, fontSize: 15, fontWeight: '500', textAlign: 'center' },
@@ -405,7 +435,7 @@ const styles = StyleSheet.create({
   drawerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   drawerDismissZone: { flex: 1 },
   drawerSheetContainer: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 10, maxHeight: '85%' },
-  drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 18, borderWidth: 1, borderTopWidth: 0, borderLeftWidth: 0, borderRightWidth: 0 },
+  drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 18, borderBottomWidth: 1 },
   drawerTitle: { fontSize: 16, fontWeight: '700' },
   drawerCloseBtn: { padding: 4 },
   drawerBodyContent: { padding: 24 },

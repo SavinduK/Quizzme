@@ -18,7 +18,7 @@ export default function Settings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [qCount, setQCount] = useState<number>(5);
   // Extended type definition to include 'SA' (Short Answer)
-  const [qStyle, setQStyle] = useState<'MCQ' | 'TF' | 'SA'>('MCQ');
+  const [qStyle, setQStyle] = useState<'MCQ' | 'TF' | 'SA'|'SEQ' >('MCQ');
   const [customPrompt, setCustomPrompt] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -169,44 +169,64 @@ export default function Settings() {
             </View>
 
             {/* QUESTION STYLE SELECTOR (Updated with Short Answer button option) */}
+            {/* QUESTION STYLE SELECTOR (2x2 Grid Layout) */}
             <View style={styles.settingRow}>
               <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Question Type</Text>
-              <View style={styles.buttonOptionRow}>
-                <Pressable
-                  style={[
-                    styles.normalOptionBtn, 
-                    styles.flexButton,
-                    { borderColor: theme.border },
-                    qStyle === 'MCQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
-                  ]}
-                  onPress={() => setQStyle('MCQ')}
-                >
-                  <Text style={[styles.normalOptionText, { color: qStyle === 'MCQ' ? '#fff' : theme.title }]}>MCQ</Text>
-                </Pressable>
-                
-                <Pressable
-                  style={[
-                    styles.normalOptionBtn, 
-                    styles.flexButton,
-                    { borderColor: theme.border },
-                    qStyle === 'TF' && { backgroundColor: theme.buttons, borderColor: theme.accent }
-                  ]}
-                  onPress={() => setQStyle('TF')}
-                >
-                  <Text style={[styles.normalOptionText, { color: qStyle === 'TF' ? '#fff' : theme.title }]}>True / False</Text>
-                </Pressable>
+              
+              <View style={styles.gridContainer}>
+                {/* Row 1 */}
+                <View style={styles.buttonOptionRow}>
+                  <Pressable
+                    style={[
+                      styles.normalOptionBtn, 
+                      styles.flexButton,
+                      { borderColor: theme.border },
+                      qStyle === 'MCQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                    ]}
+                    onPress={() => setQStyle('MCQ')}
+                  >
+                    <Text style={[styles.normalOptionText, { color: qStyle === 'MCQ' ? '#fff' : theme.title }]}>MCQ</Text>
+                  </Pressable>
 
-                <Pressable
-                  style={[
-                    styles.normalOptionBtn, 
-                    styles.flexButton,
-                    { borderColor: theme.border },
-                    qStyle === 'SA' && { backgroundColor: theme.buttons, borderColor: theme.accent }
-                  ]}
-                  onPress={() => setQStyle('SA')}
-                >
-                  <Text style={[styles.normalOptionText, { color: qStyle === 'SA' ? '#fff' : theme.title }]}>Short Ans</Text>
-                </Pressable>
+                  <Pressable
+                    style={[
+                      styles.normalOptionBtn, 
+                      styles.flexButton,
+                      { borderColor: theme.border },
+                      qStyle === 'TF' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                    ]}
+                    onPress={() => setQStyle('TF')}
+                  >
+                    <Text style={[styles.normalOptionText, { color: qStyle === 'TF' ? '#fff' : theme.title }]}>True / False</Text>
+                  </Pressable>
+                </View>
+
+                {/* Row 2 */}
+                <View style={styles.buttonOptionRow}>
+                  <Pressable
+                    style={[
+                      styles.normalOptionBtn, 
+                      styles.flexButton,
+                      { borderColor: theme.border },
+                      qStyle === 'SA' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                    ]}
+                    onPress={() => setQStyle('SA')}
+                  >
+                    <Text style={[styles.normalOptionText, { color: qStyle === 'SA' ? '#fff' : theme.title }]}>Short Answer</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.normalOptionBtn, 
+                      styles.flexButton,
+                      { borderColor: theme.border },
+                      qStyle === 'SEQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                    ]}
+                    onPress={() => setQStyle('SEQ')}
+                  >
+                    <Text style={[styles.normalOptionText, { color: qStyle === 'SEQ' ? '#fff' : theme.title }]}>Structured</Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
 
@@ -312,12 +332,6 @@ const styles = StyleSheet.create({
   flexInput: { flex: 1, height: '100%', fontSize: 14 },
   eyeBtn: { height: '100%', paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },
   textArea: { minHeight: 80, borderRadius: 14, borderWidth: 1, padding: 14, fontSize: 14, lineHeight: 20 },
-  buttonOptionRow: { 
-    flexDirection: 'row', 
-    gap: 8, 
-    marginTop: 4, 
-    width: '100%' 
-  },
   flexButton: {
     flex: 1
   },
@@ -350,6 +364,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 5
+  },
+  gridContainer: {
+    gap: 8, // Adds vertical space between Row 1 and Row 2
+    width: '100%'
+  },
+  buttonOptionRow: { 
+    flexDirection: 'row', 
+    gap: 8, 
+    width: '100%' 
   },
   modalHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   modalTitle: { fontSize: 18, fontWeight: '800' },
