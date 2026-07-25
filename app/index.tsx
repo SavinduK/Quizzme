@@ -9,15 +9,20 @@ import Header from './components/header';
 import QuizCard from './components/quiz-card';
 import { Colors } from './constants/theme';
 
-const CACHE_DIR = `${FileSystem.documentDirectory}cached-questions/`;
+const AI_CACHE_DIR = `${FileSystem.documentDirectory}cached-questions/`;
+const PAST_PAPERS_DIR = `${FileSystem.documentDirectory}pastpapers/`;
 const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
 
 type QuestionType = 'mcq' | 'tf' | 'sa' | 'seq';
+type SourceMode = 'ai' | 'pastpaper';
 
 export default function HomeFeed() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
+
+  // Source selection state (AI vs Past Papers)
+  const [sourceMode, setSourceMode] = useState<SourceMode>('ai');
 
   const [subjects, setSubjects] = useState<string[]>([]);
   const [terms, setTerms] = useState<string[]>([]);
@@ -34,12 +39,25 @@ export default function HomeFeed() {
   const [runningScore, setRunningScore] = useState<number>(0);
   const [chosenAnswer, setChosenAnswer] = useState<string | null>(null);
   
+  // True / False State
   const [tfSelections, setTfSelections] = useState<{ [key: number]: boolean | null }>({ 0: null, 1: null, 2: null, 3: null, 4: null });
   const [tfChecked, setTfChecked] = useState<boolean>(false);
   const [tfQuestionScore, setTfQuestionScore] = useState<number>(0);
 
+  // Short Answer State
+  const [saInputText, setSaInputText] = useState<string>('');
+  const [saChecked, setSaChecked] = useState<boolean>(false);
+
+  // SEQ State
+  const [showSeqAnswer, setShowSeqAnswer] = useState<boolean>(false);
+  const [seqUserNotes, setSeqUserNotes] = useState<string>('');
+
   // Unified Bottom Drawer Filter Panel Visibility Toggle
   const [filterPanelVisible, setFilterPanelVisible] = useState(false);
+
+  const getTargetDirectory = (mode: SourceMode) => {
+    return mode === 'pastpaper' ? PAST_PAPERS_DIR : AI_CACHE_DIR;
+  };
 
   const fetchAvailableDecks = async () => {
     try {
@@ -57,21 +75,29 @@ export default function HomeFeed() {
         }
       }
 
-      const folderInfo = await FileSystem.getInfoAsync(CACHE_DIR);
-      if (!folderInfo.exists) return;
+      const activeDir = getTargetDirectory(sourceMode);
+      const folderInfo = await FileSystem.getInfoAsync(activeDir);
+      if (!folderInfo.exists) {
+        setSubjects([]);
+        setTerms([]);
+        return;
+      }
 
-      const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
+      const files = await FileSystem.readDirectoryAsync(activeDir);
       const uniqueSubjects = new Set<string>();
       const uniqueTerms = new Set<string>();
 
       for (const file of files) {
-        if (file.endsWith('.json')) {
-          const cleanName = file.replace('.json', '');
+        if (file.endsWith('.json') || file.endsWith('.txt')) {
+          const cleanName = file.replace(/\.(json|txt)$/, '');
           const parts = cleanName.split('-');
           
           if (parts.length >= 3) {
-            const parsedSubject = parts[1].replace(/_/g, ' ');
+            // Handle prefix stripping if present (e.g. mcq_cardio-physio-term1)
+            const subjectPart = parts[1].includes('_') ? parts[1].split('_').slice(1).join('_') : parts[1];
+            const parsedSubject = subjectPart.replace(/_/g, ' ');
             const parsedTerm = parts[2].replace(/_/g, ' ');
+            
             uniqueSubjects.add(parsedSubject);
             uniqueTerms.add(parsedTerm);
           }
@@ -79,32 +105,39 @@ export default function HomeFeed() {
       }
       setSubjects(Array.from(uniqueSubjects).sort());
       setTerms(Array.from(uniqueTerms).sort());
-    } catch (e) { console.error("Error reading data file systems:", e); }
+    } catch (e) { 
+      console.error("Error reading data file systems:", e); 
+    }
   };
 
   const generateRandomSession = async () => {
     try {
-      const folderInfo = await FileSystem.getInfoAsync(CACHE_DIR);
-      if (!folderInfo.exists) return;
+      const activeDir = getTargetDirectory(sourceMode);
+      const folderInfo = await FileSystem.getInfoAsync(activeDir);
+      if (!folderInfo.exists) {
+        setCompiledPool([]);
+        return;
+      }
 
-      const files = await FileSystem.readDirectoryAsync(CACHE_DIR);
+      const files = await FileSystem.readDirectoryAsync(activeDir);
       let rawQuestions: any[] = [];
 
       for (const file of files) {
-        if (!file.endsWith('.json')) continue;
+        if (!file.endsWith('.json') && !file.endsWith('.txt')) continue;
         
-        const cleanName = file.replace('.json', '');
+        const cleanName = file.replace(/\.(json|txt)$/, '');
         const parts = cleanName.split('-');
         
         if (parts.length >= 3) {
-          const fileSubject = parts[1].replace(/_/g, ' ');
+          const subjectPart = parts[1].includes('_') ? parts[1].split('_').slice(1).join('_') : parts[1];
+          const fileSubject = subjectPart.replace(/_/g, ' ');
           const fileTerm = parts[2].replace(/_/g, ' ');
 
-          const matchSubject = !selectedSubject || fileSubject === selectedSubject;
-          const matchTerm = !selectedTerm || fileTerm === selectedTerm;
+          const matchSubject = !selectedSubject || fileSubject.toLowerCase() === selectedSubject.toLowerCase();
+          const matchTerm = !selectedTerm || fileTerm.toLowerCase() === selectedTerm.toLowerCase();
 
           if (matchSubject && matchTerm) {
-            const rawContent = await FileSystem.readAsStringAsync(`${CACHE_DIR}${file}`);
+            const rawContent = await FileSystem.readAsStringAsync(`${activeDir}${file}`);
             if (!rawContent || rawContent.trim() === '') continue;
 
             try {
@@ -120,7 +153,6 @@ export default function HomeFeed() {
               questionsList = questionsList.filter((q) => {
                 let qType = '';
 
-                // Structural inference for each prompt archetype
                 if (Array.isArray(q.sub_questions)) {
                   qType = 'seq';
                 } else if (Array.isArray(q.statements) && Array.isArray(q.answers)) {
@@ -159,10 +191,14 @@ export default function HomeFeed() {
     setTfSelections({ 0: null, 1: null, 2: null, 3: null, 4: null });
     setTfChecked(false);
     setTfQuestionScore(0);
+    setSaInputText('');
+    setSaChecked(false);
+    setShowSeqAnswer(false);
+    setSeqUserNotes('');
   };
 
-  useFocusEffect(useCallback(() => { fetchAvailableDecks(); }, []));
-  useFocusEffect(useCallback(() => { generateRandomSession(); }, [selectedSubject, selectedTerm, selectedType, maxQuestionsCount]));
+  useFocusEffect(useCallback(() => { fetchAvailableDecks(); }, [sourceMode]));
+  useFocusEffect(useCallback(() => { generateRandomSession(); }, [sourceMode, selectedSubject, selectedTerm, selectedType, maxQuestionsCount]));
 
   const evaluateTfQuestion = () => {
     if (compiledPool.length === 0) return;
@@ -194,6 +230,10 @@ export default function HomeFeed() {
       setTfSelections({ 0: null, 1: null, 2: null, 3: null, 4: null });
       setTfChecked(false);
       setTfQuestionScore(0);
+      setSaInputText('');
+      setSaChecked(false);
+      setShowSeqAnswer(false);
+      setSeqUserNotes('');
     } else {
       setQuizFinished(true);
     }
@@ -205,22 +245,7 @@ export default function HomeFeed() {
     setSelectedType('mcq');
   };
 
-  const hasActiveFilters = selectedSubject || selectedTerm || selectedType !== 'mcq';
-  
-  // Maps question format string for readable context label
-  const formatLabelMap: Record<QuestionType, string> = {
-    mcq: 'MCQs',
-    tf: 'True / False',
-    sa: 'Short Answer',
-    seq: 'Structured Essay (SEQ)'
-  };
-
-  // Creates a clean readable context banner string showing current config parameters
-  const targetSummaryText = [
-    selectedSubject ?? 'All Subjects',
-    selectedTerm ?? 'All Terms',
-    formatLabelMap[selectedType]
-  ].join(' • ');
+  const hasActiveFilters = selectedSubject || selectedTerm || selectedType !== 'mcq' || sourceMode !== 'ai';
 
   const maxPossibleScore = selectedType === 'tf' ? compiledPool.length * 5 : compiledPool.length;
 
@@ -228,12 +253,13 @@ export default function HomeFeed() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? "light-content" : "dark-content"} />
 
-      <Header title="Daily Flash-Quizzes" onRightButtonPress={() => router.push('/add-questions')} />
+      <Header title={sourceMode === 'pastpaper' ? "Past Paper Mode" : "Daily Flash-Quizzes"} onRightButtonPress={() => router.push('/add-papers')} />
 
-      {/* Modern Control Row: Config Summary & Filter Settings Trigger Button */}
       <View style={styles.controlRow}>
         <View style={styles.summaryTextContainer}>
-          <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Current Session</Text>
+          <Text style={[styles.summaryLabel, { color: theme.subtext }]}>
+            {sourceMode === 'pastpaper' ? '📄 Saved Past Papers' : '⚡ AI Generated Questions'}
+          </Text>
         </View>
 
         <Pressable
@@ -250,8 +276,12 @@ export default function HomeFeed() {
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {compiledPool.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <FontAwesome5 name="graduation-cap" size={50} color={theme.border} />
-            <Text style={[styles.emptyText, { color: theme.subtext }]}>No questions found for this criteria.</Text>
+            <FontAwesome5 name={sourceMode === 'pastpaper' ? "file-alt" : "graduation-cap"} size={50} color={theme.border} />
+            <Text style={[styles.emptyText, { color: theme.subtext }]}>
+              {sourceMode === 'pastpaper' 
+                ? "No saved past paper questions match your selection." 
+                : "No AI generated questions found for this criteria."}
+            </Text>
             {hasActiveFilters && (
               <Pressable style={[styles.inlineClearBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={resetFilters}>
                 <Text style={{ color: theme.accent, fontWeight: '600', fontSize: 13 }}>Reset Filters</Text>
@@ -293,11 +323,25 @@ export default function HomeFeed() {
             handleNextQuestion={handleNextQuestion}
             currentQuestionIdx={currentQuestionIndex}
             totalQuestions={compiledPool.length}
+            
+            // Short Answer bindings
+            isSAQuiz={selectedType === 'sa'}
+            saInputText={saInputText}
+            setSaInputText={setSaInputText}
+            saChecked={saChecked}
+            setSaChecked={setSaChecked}
+
+            // SEQ bindings
+            isSEQQuiz={selectedType === 'seq'}
+            showSeqAnswer={showSeqAnswer}
+            setShowSeqAnswer={setShowSeqAnswer}
+            seqUserNotes={seqUserNotes}
+            setSeqUserNotes={setSeqUserNotes}
           />
         )}
       </ScrollView>
 
-      {/* --- REFACTORED INTEGRATED BOTTOM SHEET FILTER MODAL --- */}
+      {/* --- INTEGRATED BOTTOM SHEET FILTER MODAL --- */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -309,7 +353,6 @@ export default function HomeFeed() {
           
           <View style={[styles.drawerSheetContainer, { backgroundColor: theme.card }]}>
             <SafeAreaView edges={['bottom']}>
-              {/* Drawer Header Area */}
               <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
                 <Text style={[styles.drawerTitle, { color: theme.title }]}>Quiz Settings</Text>
                 <Pressable onPress={() => setFilterPanelVisible(false)} style={styles.drawerCloseBtn}>
@@ -318,8 +361,30 @@ export default function HomeFeed() {
               </View>
 
               <ScrollView style={styles.drawerBodyContent} showsVerticalScrollIndicator={false}>
-                {/* 1. Question Formatting Framework Configuration Selector */}
-                <Text style={[styles.groupHeadingLabel, { color: theme.subtext }]}>Question Format</Text>
+                {/* 1. DATA SOURCE SELECTOR */}
+                <Text style={[styles.groupHeadingLabel, { color: theme.subtext }]}>Data Source</Text>
+                <View style={styles.chipClusterFlexRow}>
+                  <Pressable
+                    onPress={() => setSourceMode('ai')}
+                    style={[styles.filterChip, sourceMode === 'ai' ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.filterChipText, sourceMode === 'ai' ? { color: '#FFF' } : { color: theme.title }]}>
+                      ⚡ AI Generated
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setSourceMode('pastpaper')}
+                    style={[styles.filterChip, sourceMode === 'pastpaper' ? { backgroundColor: theme.accent, borderColor: theme.accent } : { borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.filterChipText, sourceMode === 'pastpaper' ? { color: '#FFF' } : { color: theme.title }]}>
+                      📄 Saved Past Papers
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {/* 2. QUESTION FORMAT */}
+                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Question Format</Text>
                 <View style={styles.chipClusterFlexRow}>
                   <Pressable
                     onPress={() => setSelectedType('mcq')}
@@ -350,7 +415,7 @@ export default function HomeFeed() {
                   </Pressable>
                 </View>
 
-                {/* 2. Academic Course Selection Map */}
+                {/* 3. SUBJECT FILTER */}
                 <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Subject</Text>
                 <View style={styles.chipClusterFlexRow}>
                   <Pressable
@@ -373,8 +438,8 @@ export default function HomeFeed() {
                   })}
                 </View>
 
-                {/* 3. Academic Term Interval Selection Map */}
-                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Term</Text>
+                {/* 4. TERM FILTER */}
+                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 22 }]}>Term / Batch</Text>
                 <View style={styles.chipClusterFlexRow}>
                   <Pressable
                     onPress={() => setSelectedTerm(null)}
@@ -396,7 +461,6 @@ export default function HomeFeed() {
                   })}
                 </View>
 
-                {/* Operational Action Confirmation Layout Buttons Footer */}
                 <View style={styles.drawerFooterGroup}>
                   <Pressable onPress={resetFilters} style={[styles.footerBtnSecondary, { borderColor: theme.border }]}>
                     <Text style={{ color: theme.title, fontWeight: '600' }}>Reset Options</Text>
@@ -420,7 +484,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   controlRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 16, marginBottom: 5, gap: 12 },
   summaryTextContainer: { flex: 1 },
-  summaryLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+  summaryLabel: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
   filterActionButton: { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
   scroll: { flex: 1, paddingHorizontal: 20 },
   emptyContainer: { alignItems: 'center', marginTop: 80, width: '100%', paddingHorizontal: 20 },
@@ -431,7 +495,6 @@ const styles = StyleSheet.create({
   refreshButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 14, borderWidth: 1, marginTop: 10, marginBottom: 30, width: '100%' },
   refreshButtonText: { fontSize: 15, fontWeight: '700' },
 
-  /* DRAWER SHEET MODAL OVERLAY ARCHITECTURE */
   drawerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   drawerDismissZone: { flex: 1 },
   drawerSheetContainer: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 10, maxHeight: '85%' },
