@@ -1,5 +1,4 @@
 import { FontAwesome5 } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
   Modal,
@@ -42,6 +41,7 @@ interface ModuleSelectorProps {
   availableLessons: Lesson[];
   launchDeck: (filename: string) => void;
   copyToClipboard: (filename: string) => void;
+  shareAsMarkdown: (filename: string) => void;
   onSelectDeleteTarget: (filename: string) => void;
   onSelectLesson: (file: Lesson) => void;
 }
@@ -50,6 +50,7 @@ export default function ModuleSelector({
   availableLessons,
   launchDeck,
   copyToClipboard,
+  shareAsMarkdown,
   onSelectDeleteTarget,
   onSelectLesson,
 }: ModuleSelectorProps) {
@@ -225,16 +226,13 @@ export default function ModuleSelector({
                 onPress={() => {
                   const target = activeMenu.lesson;
                   setActiveMenu(null);
-                  router.push({
-                    pathname: '/summary',
-                    params: { filename: target.filename, lesson: target.lesson },
-                  });
+                  shareAsMarkdown(target.filename);
                 }}
               >
-                <FontAwesome5 name="file-alt" size={14} color="#93C5FD" style={styles.compactIcon} />
-                <Text style={[styles.compactMenuText, { color: theme.title }]}>Summary</Text>
+                <FontAwesome5 name="share-alt" size={14} color={theme.accent} style={styles.compactIcon} />
+                <Text style={[styles.compactMenuText, { color: theme.title }]}>Share</Text>
               </Pressable>
-
+              
               <Pressable
                 style={styles.compactMenuItem}
                 onPress={() => {
@@ -243,8 +241,8 @@ export default function ModuleSelector({
                   copyToClipboard(target.filename);
                 }}
               >
-                <FontAwesome5 name="share-alt" size={14} color={theme.accent} style={styles.compactIcon} />
-                <Text style={[styles.compactMenuText, { color: theme.title }]}>Share</Text>
+                <FontAwesome5 name="copy" size={14} color="#007AFF" style={styles.compactIcon} />
+                <Text style={[styles.compactMenuText, { color: theme.title }]}>Copy</Text>
               </Pressable>
 
               <Pressable
