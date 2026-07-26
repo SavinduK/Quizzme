@@ -137,6 +137,17 @@ export default function QuizCard({
         );
       })}
 
+      {/* MCQ EXPLANATION CARD (Revealed upon selecting an option) */}
+      {!isTFStyle && !isSAQuiz && !isSEQQuiz && chosenAnswer && item.explanation && (
+        <View style={[styles.explanationBox, { backgroundColor: theme.background, borderColor: theme.accent }]}>
+          <View style={styles.explanationHeaderRow}>
+            <FontAwesome5 name="lightbulb" size={13} color={theme.accent} style={{ marginRight: 6 }} />
+            <Text style={[styles.saLabelText, { color: theme.accent, marginBottom: 0 }]}>Explanation</Text>
+          </View>
+          <Text style={[styles.explanationText, { color: theme.title }]}>{item.explanation}</Text>
+        </View>
+      )}
+
       {/* 2. TRUE / FALSE MULTI-STATEMENT */}
       {isTFStyle && !isSAQuiz && !isSEQQuiz && item.statements?.map((statement: string, sIdx: number) => {
         const currentSelection = tfSelections[sIdx];
@@ -178,6 +189,17 @@ export default function QuizCard({
           </View>
         );
       })}
+
+      {/* TRUE / FALSE EXPLANATION CARD (Revealed after checking statements) */}
+      {isTFStyle && !isSAQuiz && !isSEQQuiz && tfChecked && item.explanation && (
+        <View style={[styles.explanationBox, { backgroundColor: theme.background, borderColor: theme.accent }]}>
+          <View style={styles.explanationHeaderRow}>
+            <FontAwesome5 name="lightbulb" size={13} color={theme.accent} style={{ marginRight: 6 }} />
+            <Text style={[styles.saLabelText, { color: theme.accent, marginBottom: 0 }]}>Explanation</Text>
+          </View>
+          <Text style={[styles.explanationText, { color: theme.title }]}>{item.explanation}</Text>
+        </View>
+      )}
 
       {/* 3. SHORT ANSWER SECTION */}
       {isSAQuiz && !isSEQQuiz && (
@@ -370,6 +392,12 @@ const styles = StyleSheet.create({
   quizQuestion: { fontSize: 16, fontWeight: '700', marginBottom: 18, lineHeight: 22 },
   optionButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 8 },
   optionText: { fontSize: 14, flex: 1, paddingRight: 10 },
+  
+  // Explanation Card Styles
+  explanationBox: { padding: 14, borderRadius: 14, borderWidth: 1, marginTop: 10, marginBottom: 4 },
+  explanationHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  explanationText: { fontSize: 13, lineHeight: 19 },
+
   tfStatementRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 14, borderWidth: 1, marginBottom: 10, gap: 10 },
   tfStatementText: { fontSize: 13, lineHeight: 18 },
   tfFeedbackText: { fontSize: 11, fontWeight: '600', marginTop: 3 },

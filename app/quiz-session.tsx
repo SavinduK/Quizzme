@@ -187,11 +187,14 @@ export default function QuestionSession() {
       const targetStr = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${filename}`);
       let prompt = "";
       
-      if (targetStyle === 'MCQ') {
-        prompt = `Based on the following source material text, generate exactly ${targetCount} multiple choice questions. Each question must have exactly 5 distinct options. Return the data strictly as a JSON object containing an array called "questions". Each item in the array must contain "question" (string), "options" (array of 5 strings), and "correct_answer" (string matching exactly one of the options).${customPrompt} \nSource material text:${targetStr}`;
-      } else if (targetStyle === 'TF') {
-        prompt = `Based on the following source material text, generate exactly ${targetCount} True/False style questions. Each item must contain a header topic text called "question", and an array of exactly 5 distinct conceptual statements related to it. For each statement, provide its corresponding boolean true/false answer value. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string context", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false]}]}.${customPrompt} \nSource material text:${targetStr}`;
-      } else if (targetStyle === 'SA') {
+     // ... inside launchDeck() in QuestionSession.tsx ...
+
+        if (targetStyle === 'MCQ') {
+          prompt = `Based on the following source material text, generate exactly ${targetCount} multiple choice questions. Each question must have exactly 5 distinct options. Provide a brief explanation for why the correct answer is correct. Return the data strictly as a JSON object containing an array called "questions". Each item in the array must contain "question" (string), "options" (array of 5 strings), "correct_answer" (string matching exactly one of the options), and "explanation" (string).${customPrompt} \nSource material text:${targetStr}`;
+        } else if (targetStyle === 'TF') {
+          prompt = `Based on the following source material text, generate exactly ${targetCount} True/False style questions. Each item must contain a header topic text called "question", and an array of exactly 5 distinct conceptual statements related to it. For each statement, provide its corresponding boolean true/false answer value. Include an "explanation" string giving a concise rationale for the overall set or key statements. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string context", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false], "explanation": "string rationale"}]}.${customPrompt} \nSource material text:${targetStr}`;
+        }
+       else if (targetStyle === 'SA') {
         prompt = `Based on the following source material text, generate exactly ${targetCount} clear conceptual short answer questions. Return the data strictly as a JSON object containing an array called "questions". Each item must contain "question" (string), "correct_answer" (string representing the definitive brief answer key phrase), and "explanation" (string explaining the underlying core context completely).${customPrompt} \nSource material text:${targetStr}`;
       } else {
         // Structured Essay Questions (SEQ) Prompt Strategy

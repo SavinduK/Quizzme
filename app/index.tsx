@@ -253,7 +253,7 @@ export default function HomeFeed() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? "light-content" : "dark-content"} />
 
-      <Header title={sourceMode === 'pastpaper' ? "Past Paper Mode" : "Daily Flash-Quizzes"} onRightButtonPress={() => router.push('/add-papers')} />
+      <Header title="Questions" onRightButtonPress={() => router.push('/add-papers')} />
 
       <View style={styles.controlRow}>
         <View style={styles.summaryTextContainer}>
