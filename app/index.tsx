@@ -120,6 +120,7 @@ export default function HomeFeed() {
       }
 
       const files = await FileSystem.readDirectoryAsync(activeDir);
+      console.log(files)
       let rawQuestions: any[] = [];
 
       for (const file of files) {

@@ -93,52 +93,46 @@ export default function AddPastPaper() {
           if (keyFileCheck.exists) {
             const storedKey = await FileSystem.readAsStringAsync(KEY_FILE_URI);
             if (storedKey.trim().length > 0) {
-              activeApiKey = storedKey.trim();
+              activeApiKey = storedKey.trim().split("\n")[0];
               console.log(activeApiKey)
             }
           }
         } catch (keyError) {
           console.warn("Could not read local key.txt, relying on default key.", keyError);
         }
+      const systemPrompt = `Analyze the provided past paper text and classify each question into its appropriate format by looking into the way the answers are given:
+      - "MCQ" (Multiple Choice)
+      - "TF" (True/False with multiple statements)
+      - "SA" (Short Answer)
+      - "SEQ" (Structured Essay)
 
-        // 2. Strict Prompt Schema
-        const prompt = `Convert the provided past paper source text into a JSON object containing an array named "questions". Each item must include a "type" field matching one of: "MCQ", "TF", "SA", or "SEQ".
-        Types and Schemas
-        - MCQ: {"type": "MCQ", "question": "string", "options": ["opt1","opt2","opt3","opt4","opt5"], "correct_answer": "exact string matching one option"}
-        - TF: {"type": "TF", "question": "header context", "statements": ["s1","s2","s3","s4","s5"], "answers": [true, false, true, true, false]}
-        - SA: {"type": "SA", "question": "string", "correct_answer": "string", "explanation": "string"}
-        - SEQ: {"type": "SEQ", "question": "scenario title", "sub_questions": [{"sub_question": "string", "marks": 5, "answer_key": "string"}], "model_answer": "string"}
+      Extract and return a JSON object with a single key "questions" containing an array of classified questions. 
 
-        Strict Rules: Output MUST be valid raw JSON. Do not include extra text or markdown syntax.
+      Target Schemas per question type:
+      1. MCQ:
+        { "type": "MCQ", "question": "string", "options": ["opt1", "opt2", "opt3", "opt4", "opt5"], "correct_answer": "exact_matching_option_string", "explanation": "string" }
+      2. TF:
+        { "type": "TF", "question": "topic context string", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false], "explanation": "string" }
+      3. SA:
+        { "type": "SA", "question": "string", "correct_answer": "string", "explanation": "string" }
+      4. SEQ:
+        { "type": "SEQ", "question": "Main Topic", "sub_questions": [{"sub_question": "string", "marks": 5, "answer_key": "string"}], "model_answer": "string" }`;
 
-        Source Text:
-        ${rawText}`;
-        // 3. Request JSON translation via Gemini API
-        if (!activeApiKey || activeApiKey.trim().length === 0) {
-          throw new Error("Missing Gemini API Key. Please configure key.txt or set a fallback key.");
-        }
+          const prompt = `${systemPrompt}\n\nPast Paper Content Text:\n${rawText}`;
 
-        const response = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-goog-api-key': activeApiKey.trim(), // <--- Pass key here
-            },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                responseMimeType: 'application/json',
-              },
-            }),
-          }
-        ).catch((netErr) => {
-          throw new Error(`Network Error: Check internet connection. (${netErr.message})`);
-        });
-
-        const resData = await response.json();
-
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { responseMimeType: "application/json" }
+              })
+            }
+          );
+          const resData = await response.json();
+          console.log(resData)
         // Check for explicit API error response
         if (resData.error) {
           throw new Error(`API Error (${resData.error.code}): ${resData.error.message}`);

@@ -67,7 +67,8 @@ export default function AddQuestions() {
         if (keyFileCheck.exists) {
           const storedKey = await FileSystem.readAsStringAsync(KEY_FILE_URI);
           if (storedKey.trim().length > 0) {
-            activeApiKey = storedKey.trim();
+            activeApiKey = storedKey.trim().split('\n')[0];
+            console.log(activeApiKey)
           }
         }
       } catch (keyError) {
