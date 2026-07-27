@@ -2,7 +2,19 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useColorScheme,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Footer from './components/footer';
 import Header from './components/header';
@@ -18,7 +30,7 @@ export default function Settings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [qCount, setQCount] = useState<number>(5);
   // Extended type definition to include 'SA' (Short Answer)
-  const [qStyle, setQStyle] = useState<'MCQ' | 'TF' | 'SA'|'SEQ' >('MCQ');
+  const [qStyle, setQStyle] = useState<'MCQ' | 'TF' | 'SA' | 'SEQ'>('MCQ');
   const [customPrompt, setCustomPrompt] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -47,6 +59,7 @@ export default function Settings() {
           const loadedStyle = lines[2].trim().toUpperCase();
           if (loadedStyle === 'TF') setQStyle('TF');
           else if (loadedStyle === 'SA') setQStyle('SA');
+          else if (loadedStyle === 'SEQ') setQStyle('SEQ');
           else setQStyle('MCQ');
         }
         if (lines[3]) setCustomPrompt(lines[3].trim());
@@ -83,188 +96,199 @@ export default function Settings() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <Header title='Configuration Settings'/>
 
-      <View style={styles.content}>
-        
-        {/* SECTION 1: AI ENGINE CREDENTIALS */}
-        <Pressable 
-          style={styles.accordionHeader} 
-          onPress={() => setAiExpanded(!aiExpanded)}
+      <KeyboardAvoidingView 
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.sectionTitle, { color: theme.accent }]}>AI settings</Text>
-          <FontAwesome5 
-            name={aiExpanded ? "chevron-up" : "chevron-down"} 
-            size={12} 
-            color={theme.accent} 
-          />
-        </Pressable>
-
-        {aiExpanded && (
-          <View style={styles.configCard}>
-            <View style={styles.labelRow}>
-              <Text style={[styles.inputLabel, { color: theme.title }]}>Gemini API Key</Text>
-            </View>
-
-            <View style={[styles.inputContainer, { borderColor: theme.border, backgroundColor: theme.background }]}>
-              <TextInput
-                style={[styles.flexInput, { color: theme.title }]}
-                placeholder="Paste your Gemini API key here"
-                placeholderTextColor={theme.subtext}
-                value={apiKey}
-                onChangeText={setApiKey}
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry={!showApiKey} 
-              />
-              <Pressable 
-                onPress={() => setShowApiKey(!showApiKey)} 
-                style={styles.eyeBtn}
-                hitSlop={8}
-              >
-                <FontAwesome5 name={showApiKey ? "eye" : "eye-slash"} size={15} color={theme.subtext} />
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {/* SECTION SEPARATOR HORIZONTAL BAR */}
-        <View style={[styles.horizontalBar, { backgroundColor: theme.border }]} />
-
-        {/* SECTION 2: QUIZ GENERATION SETTINGS */}
-        <Pressable 
-          style={styles.accordionHeader} 
-          onPress={() => setQuizExpanded(!quizExpanded)}
-        >
-          <Text style={[styles.sectionTitle, { color: theme.accent }]}>Quiz Settings</Text>
-          <FontAwesome5 
-            name={quizExpanded ? "chevron-up" : "chevron-down"} 
-            size={12} 
-            color={theme.accent} 
-          />
-        </Pressable>
-
-        {quizExpanded && (
-          <View style={styles.configCard}>
+          <View style={styles.content}>
             
-            {/* QUESTION COUNT SELECTOR */}
-            <View style={styles.settingRow}>
-              <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Number of Questions</Text>
-              <View style={styles.buttonOptionRow}>
-                {[5, 10, 15, 20].map((num) => (
-                  <Pressable
-                    key={num}
-                    style={[
-                      styles.normalOptionBtn, 
-                      styles.flexButton,
-                      { borderColor: theme.border },
-                      qCount === num && { backgroundColor: theme.buttons, borderColor: theme.accent }
-                    ]}
-                    onPress={() => setQCount(num)}
-                  >
-                    <Text style={[styles.normalOptionText, { color: qCount === num ? '#fff' : theme.title }]}>
-                      {num}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
-            {/* QUESTION STYLE SELECTOR (Updated with Short Answer button option) */}
-            {/* QUESTION STYLE SELECTOR (2x2 Grid Layout) */}
-            <View style={styles.settingRow}>
-              <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Question Type</Text>
-              
-              <View style={styles.gridContainer}>
-                {/* Row 1 */}
-                <View style={styles.buttonOptionRow}>
-                  <Pressable
-                    style={[
-                      styles.normalOptionBtn, 
-                      styles.flexButton,
-                      { borderColor: theme.border },
-                      qStyle === 'MCQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
-                    ]}
-                    onPress={() => setQStyle('MCQ')}
-                  >
-                    <Text style={[styles.normalOptionText, { color: qStyle === 'MCQ' ? '#fff' : theme.title }]}>MCQ</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={[
-                      styles.normalOptionBtn, 
-                      styles.flexButton,
-                      { borderColor: theme.border },
-                      qStyle === 'TF' && { backgroundColor: theme.buttons, borderColor: theme.accent }
-                    ]}
-                    onPress={() => setQStyle('TF')}
-                  >
-                    <Text style={[styles.normalOptionText, { color: qStyle === 'TF' ? '#fff' : theme.title }]}>True / False</Text>
-                  </Pressable>
-                </View>
-
-                {/* Row 2 */}
-                <View style={styles.buttonOptionRow}>
-                  <Pressable
-                    style={[
-                      styles.normalOptionBtn, 
-                      styles.flexButton,
-                      { borderColor: theme.border },
-                      qStyle === 'SA' && { backgroundColor: theme.buttons, borderColor: theme.accent }
-                    ]}
-                    onPress={() => setQStyle('SA')}
-                  >
-                    <Text style={[styles.normalOptionText, { color: qStyle === 'SA' ? '#fff' : theme.title }]}>Short Answer</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={[
-                      styles.normalOptionBtn, 
-                      styles.flexButton,
-                      { borderColor: theme.border },
-                      qStyle === 'SEQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
-                    ]}
-                    onPress={() => setQStyle('SEQ')}
-                  >
-                    <Text style={[styles.normalOptionText, { color: qStyle === 'SEQ' ? '#fff' : theme.title }]}>Structured</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-
-            {/* CUSTOM SYSTEM PROMPT */}
-            <View style={styles.settingRow}>
-              <View style={[styles.labelRow, { marginBottom: 8 }]}>
-                <Text style={[styles.inputLabel, { color: theme.title }]}>Custom Generation Instructions</Text>
-              </View>
-              <TextInput
-                style={[styles.textArea, { color: theme.title, borderColor: theme.border, backgroundColor: theme.background }]}
-                placeholder="e.g., Focus heavily on clinical diagnostics..."
-                placeholderTextColor={theme.subtext}
-                value={customPrompt}
-                onChangeText={setCustomPrompt}
-                multiline={true}
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
-            </View>
-
+            {/* SECTION 1: AI ENGINE CREDENTIALS */}
             <Pressable 
-              style={[styles.saveBtn, { backgroundColor: theme.buttons, opacity: isSaving ? 0.7 : 1 ,borderColor:theme.accent,borderWidth:1}]} 
-              onPress={handleSaveSettings}
-              disabled={isSaving}
+              style={styles.accordionHeader} 
+              onPress={() => setAiExpanded(!aiExpanded)}
             >
-              {isSaving ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <>
-                  <FontAwesome5 name="save" size={14} color={theme.accent} style={{ marginRight: 8 }} />
-                  <Text style={[styles.saveBtnText,{color:theme.accent}]}>Save Configurations</Text>
-                </>
-              )}
+              <Text style={[styles.sectionTitle, { color: theme.accent }]}>AI settings</Text>
+              <FontAwesome5 
+                name={aiExpanded ? "chevron-up" : "chevron-down"} 
+                size={12} 
+                color={theme.accent} 
+              />
             </Pressable>
+
+            {aiExpanded && (
+              <View style={styles.configCard}>
+                <View style={styles.labelRow}>
+                  <Text style={[styles.inputLabel, { color: theme.title }]}>Gemini API Key</Text>
+                </View>
+
+                <View style={[styles.inputContainer, { borderColor: theme.border, backgroundColor: theme.background }]}>
+                  <TextInput
+                    style={[styles.flexInput, { color: theme.title }]}
+                    placeholder="Paste your Gemini API key here"
+                    placeholderTextColor={theme.subtext}
+                    value={apiKey}
+                    onChangeText={setApiKey}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    secureTextEntry={!showApiKey} 
+                  />
+                  <Pressable 
+                    onPress={() => setShowApiKey(!showApiKey)} 
+                    style={styles.eyeBtn}
+                    hitSlop={8}
+                  >
+                    <FontAwesome5 name={showApiKey ? "eye" : "eye-slash"} size={15} color={theme.subtext} />
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {/* SECTION SEPARATOR HORIZONTAL BAR */}
+            <View style={[styles.horizontalBar, { backgroundColor: theme.border }]} />
+
+            {/* SECTION 2: QUIZ GENERATION SETTINGS */}
+            <Pressable 
+              style={styles.accordionHeader} 
+              onPress={() => setQuizExpanded(!quizExpanded)}
+            >
+              <Text style={[styles.sectionTitle, { color: theme.accent }]}>Quiz Settings</Text>
+              <FontAwesome5 
+                name={quizExpanded ? "chevron-up" : "chevron-down"} 
+                size={12} 
+                color={theme.accent} 
+              />
+            </Pressable>
+
+            {quizExpanded && (
+              <View style={styles.configCard}>
+                
+                {/* QUESTION COUNT SELECTOR */}
+                <View style={styles.settingRow}>
+                  <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Number of Questions</Text>
+                  <View style={styles.buttonOptionRow}>
+                    {[5, 10, 15, 20].map((num) => (
+                      <Pressable
+                        key={num}
+                        style={[
+                          styles.normalOptionBtn, 
+                          styles.flexButton,
+                          { borderColor: theme.border },
+                          qCount === num && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                        ]}
+                        onPress={() => setQCount(num)}
+                      >
+                        <Text style={[styles.normalOptionText, { color: qCount === num ? '#fff' : theme.title }]}>
+                          {num}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                {/* QUESTION STYLE SELECTOR (2x2 Grid Layout) */}
+                <View style={styles.settingRow}>
+                  <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Question Type</Text>
+                  
+                  <View style={styles.gridContainer}>
+                    {/* Row 1 */}
+                    <View style={styles.buttonOptionRow}>
+                      <Pressable
+                        style={[
+                          styles.normalOptionBtn, 
+                          styles.flexButton,
+                          { borderColor: theme.border },
+                          qStyle === 'MCQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                        ]}
+                        onPress={() => setQStyle('MCQ')}
+                      >
+                        <Text style={[styles.normalOptionText, { color: qStyle === 'MCQ' ? '#fff' : theme.title }]}>MCQ</Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={[
+                          styles.normalOptionBtn, 
+                          styles.flexButton,
+                          { borderColor: theme.border },
+                          qStyle === 'TF' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                        ]}
+                        onPress={() => setQStyle('TF')}
+                      >
+                        <Text style={[styles.normalOptionText, { color: qStyle === 'TF' ? '#fff' : theme.title }]}>True / False</Text>
+                      </Pressable>
+                    </View>
+
+                    {/* Row 2 */}
+                    <View style={styles.buttonOptionRow}>
+                      <Pressable
+                        style={[
+                          styles.normalOptionBtn, 
+                          styles.flexButton,
+                          { borderColor: theme.border },
+                          qStyle === 'SA' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                        ]}
+                        onPress={() => setQStyle('SA')}
+                      >
+                        <Text style={[styles.normalOptionText, { color: qStyle === 'SA' ? '#fff' : theme.title }]}>Short Answer</Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={[
+                          styles.normalOptionBtn, 
+                          styles.flexButton,
+                          { borderColor: theme.border },
+                          qStyle === 'SEQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                        ]}
+                        onPress={() => setQStyle('SEQ')}
+                      >
+                        <Text style={[styles.normalOptionText, { color: qStyle === 'SEQ' ? '#fff' : theme.title }]}>Structured</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+
+                {/* CUSTOM SYSTEM PROMPT */}
+                <View style={styles.settingRow}>
+                  <View style={[styles.labelRow, { marginBottom: 8 }]}>
+                    <Text style={[styles.inputLabel, { color: theme.title }]}>Custom Generation Instructions</Text>
+                  </View>
+                  <TextInput
+                    style={[styles.textArea, { color: theme.title, borderColor: theme.border, backgroundColor: theme.background }]}
+                    placeholder="e.g., Focus heavily on clinical diagnostics..."
+                    placeholderTextColor={theme.subtext}
+                    value={customPrompt}
+                    onChangeText={setCustomPrompt}
+                    multiline={true}
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                  />
+                </View>
+
+                <Pressable 
+                  style={[styles.saveBtn, { backgroundColor: theme.buttons, opacity: isSaving ? 0.7 : 1, borderColor: theme.accent, borderWidth: 1 }]} 
+                  onPress={handleSaveSettings}
+                  disabled={isSaving}
+                >
+                  {isSaving ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <>
+                      <FontAwesome5 name="save" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                      <Text style={[styles.saveBtnText, { color: theme.accent }]}>Save Configurations</Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+            )}
           </View>
-        
-        )}
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
       <Footer/>
 
       {/* THEME MATCHING CUSTOM MODAL FOR ALERTS */}
@@ -303,9 +327,11 @@ export default function Settings() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  keyboardView: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 25, paddingTop: 25, paddingBottom: 25 },
   headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  content: { flex: 1, paddingHorizontal: 25,paddingVertical:20 },
+  content: { flex: 1, paddingHorizontal: 25, paddingVertical: 20 },
   accordionHeader: { 
     flexDirection: 'row', 
     justifyContent: 'space-between', 
@@ -366,7 +392,7 @@ const styles = StyleSheet.create({
     elevation: 5
   },
   gridContainer: {
-    gap: 8, // Adds vertical space between Row 1 and Row 2
+    gap: 8,
     width: '100%'
   },
   buttonOptionRow: { 

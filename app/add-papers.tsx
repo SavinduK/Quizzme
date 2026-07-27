@@ -2,7 +2,19 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useColorScheme,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from './constants/theme';
 
@@ -12,13 +24,13 @@ const FALLBACK_GEMINI_API_KEY = "";
 const PAST_PAPERS_DIR = `${FileSystem.documentDirectory}pastpapers/`;
 const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
 
-type QuestionStyle = 'MCQ' | 'TF' | 'SA' | 'SEQ' | 'JSON';
+type FormatMode = 'AUTO' | 'JSON';
 
 export default function AddPastPaper() {
   const [subject, setSubject] = useState('');
   const [term, setTerm] = useState('');
   const [lesson, setLesson] = useState('');
-  const [targetStyle, setTargetStyle] = useState<QuestionStyle>('MCQ');
+  const [formatMode, setFormatMode] = useState<FormatMode>('AUTO');
   const [rawText, setRawText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -35,6 +47,22 @@ export default function AddPastPaper() {
     setAlertVisible(true);
   };
 
+  // Utility to clean markdown wrappers or preambles from AI outputs
+  const cleanJsonText = (raw: string): string => {
+    let cleaned = raw.trim();
+    // Strip markdown code fences if present
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+    // Isolate pure JSON string between outer braces/brackets
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+    }
+    return cleaned.trim();
+  };
+
   const handleSave = async () => {
     if (!subject.trim() || !term.trim() || !lesson.trim() || !rawText.trim()) {
       showAlert("Error", "Please fill in all metadata fields and provide the question text.", 'error');
@@ -46,16 +74,17 @@ export default function AddPastPaper() {
     try {
       let formattedJsonString = '';
 
-      // --- DIRECT JSON PATH (Bypass Gemini API) ---
-      if (targetStyle === 'JSON') {
+      // --- DIRECT JSON PATH ---
+      if (formatMode === 'JSON') {
         try {
-          const parsed = JSON.parse(rawText.trim());
+          const cleanedText = cleanJsonText(rawText);
+          const parsed = JSON.parse(cleanedText);
           formattedJsonString = JSON.stringify(parsed, null, 2);
         } catch {
-          throw new Error("Invalid JSON input. Please ensure the text is formatted as valid JSON.");
+          throw new Error("Invalid JSON input. Please check syntax or remove syntax errors.");
         }
       } 
-      // --- GEMINI AI GENERATION PATH ---
+      // --- GEMINI AI AUTO-DETECT GENERATION PATH ---
       else {
         // 1. Resolve dynamic API key configuration
         let activeApiKey = FALLBACK_GEMINI_API_KEY;
@@ -65,51 +94,70 @@ export default function AddPastPaper() {
             const storedKey = await FileSystem.readAsStringAsync(KEY_FILE_URI);
             if (storedKey.trim().length > 0) {
               activeApiKey = storedKey.trim();
+              console.log(activeApiKey)
             }
           }
         } catch (keyError) {
           console.warn("Could not read local key.txt, relying on default key.", keyError);
         }
 
-        // 2. Select prompt based on target question style
-        let prompt = '';
-        if (targetStyle === 'MCQ') {
-          prompt = `Based on the following source material text, parse and generate multiple choice questions. Each question must have exactly 5 distinct options. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string", "options": ["s1", "s2", "s3", "s4", "s5"], "correct_answer": "string matching one option"}]}.\nSource text:\n${rawText}`;
-        } else if (targetStyle === 'TF') {
-          prompt = `Based on the following source material text, generate True/False style questions. Each item must contain a header topic text called "question", and an array of exactly 5 distinct conceptual statements related to it. For each statement, provide its corresponding boolean true/false answer value. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string context", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false]}]}.\nSource text:\n${rawText}`;
-        } else if (targetStyle === 'SA') {
-          prompt = `Based on the following source material text, generate clear conceptual short answer questions. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string", "correct_answer": "string", "explanation": "string"}]}.\nSource text:\n${rawText}`;
-        } else {
-          // Structured Essay Questions (SEQ)
-          prompt = `Based on the following source material text, construct Structured Essay Questions (SEQs). Return strictly a JSON object with a key "questions" containing an array. Structure: {"questions": [{"question": "Main Scenario Heading", "sub_questions": [{"sub_question": "string", "marks": 5, "answer_key": "string"}], "model_answer": "string"}]}.\nSource text:\n${rawText}`;
+        // 2. Strict Prompt Schema
+        const prompt = `Convert the provided past paper source text into a JSON object containing an array named "questions". Each item must include a "type" field matching one of: "MCQ", "TF", "SA", or "SEQ".
+        Types and Schemas
+        - MCQ: {"type": "MCQ", "question": "string", "options": ["opt1","opt2","opt3","opt4","opt5"], "correct_answer": "exact string matching one option"}
+        - TF: {"type": "TF", "question": "header context", "statements": ["s1","s2","s3","s4","s5"], "answers": [true, false, true, true, false]}
+        - SA: {"type": "SA", "question": "string", "correct_answer": "string", "explanation": "string"}
+        - SEQ: {"type": "SEQ", "question": "scenario title", "sub_questions": [{"sub_question": "string", "marks": 5, "answer_key": "string"}], "model_answer": "string"}
+
+        Strict Rules: Output MUST be valid raw JSON. Do not include extra text or markdown syntax.
+
+        Source Text:
+        ${rawText}`;
+        // 3. Request JSON translation via Gemini API
+        if (!activeApiKey || activeApiKey.trim().length === 0) {
+          throw new Error("Missing Gemini API Key. Please configure key.txt or set a fallback key.");
         }
 
-        // 3. Request JSON translation via Gemini API
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              responseMimeType: "application/json"
-            }
-          })
+        const response = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': activeApiKey.trim(), // <--- Pass key here
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                responseMimeType: 'application/json',
+              },
+            }),
+          }
+        ).catch((netErr) => {
+          throw new Error(`Network Error: Check internet connection. (${netErr.message})`);
         });
 
         const resData = await response.json();
-        const generatedJsonText = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        if (!generatedJsonText) {
-          throw new Error("AI failed to structure questions into JSON format.");
+        // Check for explicit API error response
+        if (resData.error) {
+          throw new Error(`API Error (${resData.error.code}): ${resData.error.message}`);
+        }
+       console.log(resData)
+       const rawModelOutput = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!rawModelOutput) {
+          throw new Error("No response returned from the AI model.");
         }
 
-        // 4. Validate output JSON integrity
-        const parsedJson = JSON.parse(generatedJsonText);
+        // 4. Clean and parse JSON payload
+        const cleanedJsonText = cleanJsonText(rawModelOutput);
+        const parsedJson = JSON.parse(cleanedJsonText);
         formattedJsonString = JSON.stringify(parsedJson, null, 2);
       }
 
       // --- SAVE FILE TO DISK ---
-      const fileName = `${targetStyle.toLowerCase()}_${lesson.trim().replace(/\s+/g, '_')}-${subject.trim().replace(/\s+/g, '_')}-${term.trim().replace(/\s+/g, '_')}.json`.toLowerCase();
+      const fileName = `paper_${lesson.trim().replace(/\s+/g, '_')}-${subject.trim().replace(/\s+/g, '_')}-${term.trim().replace(/\s+/g, '_')}.json`.toLowerCase();
       const fileUri = `${PAST_PAPERS_DIR}${fileName}`;
 
       const folderInfo = await FileSystem.getInfoAsync(PAST_PAPERS_DIR);
@@ -146,86 +194,111 @@ export default function AddPastPaper() {
         <Text style={[styles.headerTitle, { color: theme.title }]}>Add Past Paper</Text>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 50 }} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.label, { color: theme.accent }]}>Paper Data</Text>
-        
-        <TextInput 
-          style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder="Subject Name (e.g., Physiology)"
-          placeholderTextColor={theme.subtext}
-          value={subject}
-          onChangeText={setSubject}
-        />
-        <TextInput 
-          style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder="Term / Year (e.g., 2023 Batch)"
-          placeholderTextColor={theme.subtext}
-          value={term}
-          onChangeText={setTerm}
-        />
-        <TextInput 
-          style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder="Lesson / Topic (e.g., Cardiovascular)"
-          placeholderTextColor={theme.subtext}
-          value={lesson}
-          onChangeText={setLesson}
-        />
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+      >
+        <ScrollView 
+          style={styles.scroll} 
+          contentContainerStyle={{ paddingBottom: 50 }} 
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={[styles.label, { color: theme.accent }]}>Paper Data</Text>
+          
+          <TextInput 
+            style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
+            placeholder="Subject Name (e.g., Physiology)"
+            placeholderTextColor={theme.subtext}
+            value={subject}
+            onChangeText={setSubject}
+          />
+          <TextInput 
+            style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
+            placeholder="Term / Year (e.g., 2023 Batch)"
+            placeholderTextColor={theme.subtext}
+            value={term}
+            onChangeText={setTerm}
+          />
+          <TextInput 
+            style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
+            placeholder="Lesson / Topic (e.g., Cardiovascular)"
+            placeholderTextColor={theme.subtext}
+            value={lesson}
+            onChangeText={setLesson}
+          />
 
-        {/* Question Type Selector */}
-        <Text style={[styles.label, { color: theme.accent, marginTop: 10 }]}>Format</Text>
-        <View style={styles.styleSelector}>
-          {(['MCQ', 'TF', 'SA', 'SEQ', 'JSON'] as QuestionStyle[]).map((style) => (
+          {/* Mode Selector */}
+          <Text style={[styles.label, { color: theme.accent, marginTop: 10 }]}>Format Mode</Text>
+          <View style={styles.styleSelector}>
             <Pressable
-              key={style}
               style={[
                 styles.styleChip,
                 { backgroundColor: theme.card, borderColor: theme.border },
-                targetStyle === style && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                formatMode === 'AUTO' && { backgroundColor: theme.buttons, borderColor: theme.accent }
               ]}
-              onPress={() => setTargetStyle(style)}
+              onPress={() => setFormatMode('AUTO')}
             >
               <Text style={[
                 styles.styleChipText, 
                 { color: theme.title },
-                targetStyle === style && { color: theme.accent, fontWeight: '700' }
+                formatMode === 'AUTO' && { color: theme.accent, fontWeight: '700' }
               ]}>
-                {style}
+                AI Auto-Detect (Text)
               </Text>
             </Pressable>
-          ))}
-        </View>
 
-        <Text style={[styles.label, { color: theme.accent, marginTop: 20 }]}> Question Input</Text>
-        <TextInput 
-          style={[styles.textArea, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder={targetStyle === 'JSON' ? "Paste structured JSON directly here..." : "Paste past paper raw text here..."}
-          placeholderTextColor={theme.subtext}
-          multiline
-          numberOfLines={10}
-          textAlignVertical="top"
-          value={rawText}
-          onChangeText={setRawText}
-        />
-
-        <Pressable 
-          disabled={isProcessing}
-          style={[styles.submitBtn, { backgroundColor: theme.buttons, opacity: isProcessing ? 0.6 : 1, borderColor: theme.accent, borderWidth: 1 }]} 
-          onPress={handleSave}
-        >
-          {isProcessing ? (
-            <View style={styles.row}>
-              <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 10 }} />
-              <Text style={[styles.submitBtnText, { color: theme.accent }]}>
-                {targetStyle === 'JSON' ? "Saving JSON..." : "Structuring with AI..."}
+            <Pressable
+              style={[
+                styles.styleChip,
+                { backgroundColor: theme.card, borderColor: theme.border },
+                formatMode === 'JSON' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+              ]}
+              onPress={() => setFormatMode('JSON')}
+            >
+              <Text style={[
+                styles.styleChipText, 
+                { color: theme.title },
+                formatMode === 'JSON' && { color: theme.accent, fontWeight: '700' }
+              ]}>
+                Raw JSON
               </Text>
-            </View>
-          ) : (
-            <Text style={[styles.submitBtnText, { color: theme.accent }]}>
-              {targetStyle === 'JSON' ? "Format & Save JSON" : "Format & Save Paper"}
-            </Text>
-          )}
-        </Pressable>
-      </ScrollView>
+            </Pressable>
+          </View>
+
+          <Text style={[styles.label, { color: theme.accent, marginTop: 20 }]}>Question Input</Text>
+          <TextInput 
+            style={[styles.textArea, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
+            placeholder={formatMode === 'JSON' ? "Paste structured JSON directly here..." : "Paste raw past paper text here (MCQs, T/F, Short Answers, or SEQs)..."}
+            placeholderTextColor={theme.subtext}
+            multiline
+            numberOfLines={10}
+            textAlignVertical="top"
+            value={rawText}
+            onChangeText={setRawText}
+          />
+
+          <Pressable 
+            disabled={isProcessing}
+            style={[styles.submitBtn, { backgroundColor: theme.buttons, opacity: isProcessing ? 0.6 : 1, borderColor: theme.accent, borderWidth: 1 }]} 
+            onPress={handleSave}
+          >
+            {isProcessing ? (
+              <View style={styles.row}>
+                <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 10 }} />
+                <Text style={[styles.submitBtnText, { color: theme.accent }]}>
+                  {formatMode === 'JSON' ? "Saving JSON..." : "Detecting & Structuring..."}
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.submitBtnText, { color: theme.accent }]}>
+                {formatMode === 'JSON' ? "Format & Save JSON" : "Process & Save Paper"}
+              </Text>
+            )}
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* CUSTOM THEME ALERT MODAL */}
       <Modal
@@ -262,6 +335,7 @@ export default function AddPastPaper() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  keyboardView: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', padding: 20, gap: 20 },
   backBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
@@ -269,9 +343,9 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },
   input: { height: 54, borderRadius: 16, borderWidth: 1, paddingHorizontal: 16, marginBottom: 15, fontSize: 15, fontWeight: '500' },
   row: { flexDirection: 'row', alignItems: 'center' },
-  styleSelector: { flexDirection: 'row', gap: 8, marginBottom: 15 },
-  styleChip: { flex: 1, height: 44, borderRadius: 12, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
-  styleChipText: { fontSize: 12, fontWeight: '600' },
+  styleSelector: { flexDirection: 'row', gap: 10, marginBottom: 15 },
+  styleChip: { flex: 1, height: 48, borderRadius: 14, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  styleChipText: { fontSize: 13, fontWeight: '600' },
   textArea: { minHeight: 220, borderRadius: 20, borderWidth: 1, padding: 16, fontSize: 13, fontFamily: 'monospace', marginBottom: 25 },
   submitBtn: { height: 56, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
   submitBtnText: { fontSize: 16, fontWeight: '700' },

@@ -3,16 +3,18 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    Pressable,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
-    useColorScheme,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Footer from './components/footer';
@@ -378,135 +380,153 @@ export default function WorkTrackerScreen() {
         )}
       </ScrollView>
 
-      {/* --- ADD TASK MODAL BOTTOM SHEET --- */}
+     {/* --- ADD TASK MODAL BOTTOM SHEET --- */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={addModalVisible}
         onRequestClose={() => setAddModalVisible(false)}
       >
-        <View style={styles.drawerOverlay}>
-          <Pressable style={styles.drawerDismissZone} onPress={() => setAddModalVisible(false)} />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.drawerOverlay}>
+            <Pressable style={styles.drawerDismissZone} onPress={() => setAddModalVisible(false)} />
 
-          <View style={[styles.drawerSheetContainer, { backgroundColor: theme.card }]}>
-            <SafeAreaView edges={['bottom']}>
-              <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
-                <Text style={[styles.drawerTitle, { color: theme.title }]}>Add Planned Task</Text>
-                <Pressable onPress={() => setAddModalVisible(false)} style={styles.drawerCloseBtn}>
-                  <FontAwesome5 name="times" size={16} color={theme.title} />
-                </Pressable>
-              </View>
-
-              <ScrollView style={styles.drawerBodyContent} showsVerticalScrollIndicator={false}>
-                {/* Task Title */}
-                <Text style={[styles.groupHeadingLabel, { color: theme.subtext }]}>Title</Text>
-                <TextInput
-                  style={[styles.textInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.title }]}
-                  placeholder="e.g. Read Anatomy Chapter 4"
-                  placeholderTextColor={theme.subtext}
-                  value={newTitle}
-                  onChangeText={setNewTitle}
-                />
-
-                {/* Subject */}
-                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 16 }]}>Subject / Tag</Text>
-                <TextInput
-                  style={[styles.textInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.title }]}
-                  placeholder="e.g. Pathology"
-                  placeholderTextColor={theme.subtext}
-                  value={newSubject}
-                  onChangeText={setNewSubject}
-                />
-
-                {/* Time Window */}
-                <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 16 }]}>Time Window</Text>
-                <TextInput
-                  style={[styles.textInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.title }]}
-                  placeholder="e.g. 03:00 PM - 04:30 PM"
-                  placeholderTextColor={theme.subtext}
-                  value={newTime}
-                  onChangeText={setNewTime}
-                />
-
-                {/* Action Buttons */}
-                <View style={styles.drawerFooterGroup}>
-                  <Pressable
-                    onPress={() => setAddModalVisible(false)}
-                    style={[styles.footerBtnSecondary, { borderColor: theme.border }]}
-                  >
-                    <Text style={{ color: theme.title, fontWeight: '600' }}>Cancel</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={handleAddNewTask}
-                    style={[styles.footerBtnPrimary, { backgroundColor: theme.accent }]}
-                  >
-                    <Text style={{ color: '#FFF', fontWeight: '700' }}>Save Task</Text>
+            <View style={[styles.drawerSheetContainer, { backgroundColor: theme.card }]}>
+              <SafeAreaView edges={['bottom']}>
+                <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
+                  <Text style={[styles.drawerTitle, { color: theme.title }]}>Add Planned Task</Text>
+                  <Pressable onPress={() => setAddModalVisible(false)} style={styles.drawerCloseBtn}>
+                    <FontAwesome5 name="times" size={16} color={theme.title} />
                   </Pressable>
                 </View>
-              </ScrollView>
-            </SafeAreaView>
+
+                <ScrollView
+                  style={styles.drawerBodyContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {/* Task Title */}
+                  <Text style={[styles.groupHeadingLabel, { color: theme.subtext }]}>Title</Text>
+                  <TextInput
+                    style={[styles.textInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.title }]}
+                    placeholder="e.g. Read Anatomy Chapter 4"
+                    placeholderTextColor={theme.subtext}
+                    value={newTitle}
+                    onChangeText={setNewTitle}
+                  />
+
+                  {/* Subject */}
+                  <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 16 }]}>Subject / Tag</Text>
+                  <TextInput
+                    style={[styles.textInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.title }]}
+                    placeholder="e.g. Pathology"
+                    placeholderTextColor={theme.subtext}
+                    value={newSubject}
+                    onChangeText={setNewSubject}
+                  />
+
+                  {/* Time Window */}
+                  <Text style={[styles.groupHeadingLabel, { color: theme.subtext, marginTop: 16 }]}>Time Window</Text>
+                  <TextInput
+                    style={[styles.textInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.title }]}
+                    placeholder="e.g. 03:00 PM - 04:30 PM"
+                    placeholderTextColor={theme.subtext}
+                    value={newTime}
+                    onChangeText={setNewTime}
+                  />
+
+                  {/* Action Buttons */}
+                  <View style={styles.drawerFooterGroup}>
+                    <Pressable
+                      onPress={() => setAddModalVisible(false)}
+                      style={[styles.footerBtnSecondary, { borderColor: theme.border }]}
+                    >
+                      <Text style={{ color: theme.title, fontWeight: '600' }}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleAddNewTask}
+                      style={[styles.footerBtnPrimary, { backgroundColor: theme.accent }]}
+                    >
+                      <Text style={{ color: '#FFF', fontWeight: '700' }}>Save Task</Text>
+                    </Pressable>
+                  </View>
+                </ScrollView>
+              </SafeAreaView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* --- IMPORT JSON MODAL BOTTOM SHEET --- */}
+      {/* --- +IMPORT JSON MODAL BOTTOM SHEET --- */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={importModalVisible}
         onRequestClose={() => setImportModalVisible(false)}
       >
-        <View style={styles.drawerOverlay}>
-          <Pressable style={styles.drawerDismissZone} onPress={() => setImportModalVisible(false)} />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.drawerOverlay}>
+            <Pressable style={styles.drawerDismissZone} onPress={() => setImportModalVisible(false)} />
 
-          <View style={[styles.drawerSheetContainer, { backgroundColor: theme.card }]}>
-            <SafeAreaView edges={['bottom']}>
-              <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
-                <Text style={[styles.drawerTitle, { color: theme.title }]}>Import Tasks via JSON</Text>
-                <Pressable onPress={() => setImportModalVisible(false)} style={styles.drawerCloseBtn}>
-                  <FontAwesome5 name="times" size={16} color={theme.title} />
-                </Pressable>
-              </View>
-
-              <ScrollView style={styles.drawerBodyContent} showsVerticalScrollIndicator={false}>
-                <Text style={[styles.groupHeadingLabel, { color: theme.subtext }]}>JSON Schedule Payload</Text>
-                <TextInput
-                  style={[
-                    styles.textInput,
-                    {
-                      backgroundColor: theme.background,
-                      borderColor: theme.border,
-                      color: theme.title,
-                      height: 120,
-                      textAlignVertical: 'top',
-                      paddingTop: 10,
-                    },
-                  ]}
-                  placeholder='Paste JSON array, e.g. [{"title": "Study", "subject": "Math", "time": "10:00 AM"}]'
-                  placeholderTextColor={theme.subtext}
-                  value={jsonInput}
-                  onChangeText={setJsonInput}
-                  multiline={true}
-                />
-
-                <View style={styles.drawerFooterGroup}>
-                  <Pressable
-                    onPress={() => setImportModalVisible(false)}
-                    style={[styles.footerBtnSecondary, { borderColor: theme.border }]}
-                  >
-                    <Text style={{ color: theme.title, fontWeight: '600' }}>Cancel</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={handleImportJson}
-                    style={[styles.footerBtnPrimary, { backgroundColor: theme.accent }]}
-                  >
-                    <Text style={{ color: '#FFF', fontWeight: '700' }}>Import JSON</Text>
+            <View style={[styles.drawerSheetContainer, { backgroundColor: theme.card }]}>
+              <SafeAreaView edges={['bottom']}>
+                <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
+                  <Text style={[styles.drawerTitle, { color: theme.title }]}>Import Tasks via JSON</Text>
+                  <Pressable onPress={() => setImportModalVisible(false)} style={styles.drawerCloseBtn}>
+                    <FontAwesome5 name="times" size={16} color={theme.title} />
                   </Pressable>
                 </View>
-              </ScrollView>
-            </SafeAreaView>
+
+                <ScrollView
+                  style={styles.drawerBodyContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <Text style={[styles.groupHeadingLabel, { color: theme.subtext }]}>JSON Schedule Payload</Text>
+                  <TextInput
+                    style={[
+                      styles.textInput,
+                      {
+                        backgroundColor: theme.background,
+                        borderColor: theme.border,
+                        color: theme.title,
+                        height: 120,
+                        textAlignVertical: 'top',
+                        paddingTop: 10,
+                      },
+                    ]}
+                    placeholder='Paste JSON array, e.g. [{"title": "Study", "subject": "Math", "time": "10:00 AM"}]'
+                    placeholderTextColor={theme.subtext}
+                    value={jsonInput}
+                    onChangeText={setJsonInput}
+                    multiline={true}
+                  />
+
+                  <View style={styles.drawerFooterGroup}>
+                    <Pressable
+                      onPress={() => setImportModalVisible(false)}
+                      style={[styles.footerBtnSecondary, { borderColor: theme.border }]}
+                    >
+                      <Text style={{ color: theme.title, fontWeight: '600' }}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleImportJson}
+                      style={[styles.footerBtnPrimary, { backgroundColor: theme.accent }]}
+                    >
+                      <Text style={{ color: '#FFF', fontWeight: '700' }}>Import JSON</Text>
+                    </Pressable>
+                  </View>
+                </ScrollView>
+              </SafeAreaView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* --- CENTERED POPUP DELETE CONFIRMATION MODAL --- */}

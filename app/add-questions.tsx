@@ -3,7 +3,19 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useColorScheme,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from './constants/theme';
 
@@ -147,71 +159,82 @@ export default function AddQuestions() {
         <Text style={[styles.headerTitle, { color: theme.title }]}>Add Notes</Text>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 50 }} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.label, { color: theme.accent }]}>Note Info</Text>
-        
-        <TextInput 
-          style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder="Subject Name (e.g., Physiology)"
-          placeholderTextColor={theme.subtext}
-          value={subject}
-          onChangeText={setSubject}
-        />
-        <TextInput 
-          style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder="Term Name (e.g., Term 2)"
-          placeholderTextColor={theme.subtext}
-          value={term}
-          onChangeText={setTerm}
-        />
-        <TextInput 
-          style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder="Lesson / Topic (e.g., Cardiovascular)"
-          placeholderTextColor={theme.subtext}
-          value={lesson}
-          onChangeText={setLesson}
-        />
-        
-        <Pressable 
-          disabled={processingPdf}
-          style={[styles.pdfBtn, { backgroundColor: theme.buttons, borderColor: theme.accent }]} 
-          onPress={handlePdfUpload}
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+      >
+        <ScrollView 
+          style={styles.scroll} 
+          contentContainerStyle={{ paddingBottom: 50 }} 
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          {processingPdf ? (
-            <View style={styles.row}>
-              <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 10 }} />
-              <Text style={{ color: theme.title, fontWeight: '600' }}>AI Ingestion Tool Processing...</Text>
-            </View>
-          ) : (
-            <View style={styles.row}>
-              <FontAwesome5 name="file-pdf" size={18} color={theme.accent} style={{ marginRight: 10 }} />
-              <Text style={{ color: theme.accent, fontWeight: '600' }}>
-                {attachedFileName ? `Change: ${attachedFileName}` : "Upload PDF Notes"}
-              </Text>
-            </View>
-          )}
-        </Pressable>
+          <Text style={[styles.label, { color: theme.accent }]}>Note Info</Text>
+          
+          <TextInput 
+            style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
+            placeholder="Subject Name (e.g., Physiology)"
+            placeholderTextColor={theme.subtext}
+            value={subject}
+            onChangeText={setSubject}
+          />
+          <TextInput 
+            style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
+            placeholder="Term Name (e.g., Term 2)"
+            placeholderTextColor={theme.subtext}
+            value={term}
+            onChangeText={setTerm}
+          />
+          <TextInput 
+            style={[styles.input, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
+            placeholder="Lesson / Topic (e.g., Cardiovascular)"
+            placeholderTextColor={theme.subtext}
+            value={lesson}
+            onChangeText={setLesson}
+          />
+          
+          <Pressable 
+            disabled={processingPdf}
+            style={[styles.pdfBtn, { backgroundColor: theme.buttons, borderColor: theme.accent }]} 
+            onPress={handlePdfUpload}
+          >
+            {processingPdf ? (
+              <View style={styles.row}>
+                <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 10 }} />
+                <Text style={{ color: theme.title, fontWeight: '600' }}>AI Ingestion Tool Processing...</Text>
+              </View>
+            ) : (
+              <View style={styles.row}>
+                <FontAwesome5 name="file-pdf" size={18} color={theme.accent} style={{ marginRight: 10 }} />
+                <Text style={{ color: theme.accent, fontWeight: '600' }}>
+                  {attachedFileName ? `Change: ${attachedFileName}` : "Upload PDF Notes"}
+                </Text>
+              </View>
+            )}
+          </Pressable>
 
-        <Text style={[styles.label, { color: theme.accent, marginTop: 20 }]}>Text Notes</Text>
-        <TextInput 
-          style={[styles.textArea, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
-          placeholder="Upload PDF to extract notes, or paste your notes manually..."
-          placeholderTextColor={theme.subtext}
-          multiline
-          numberOfLines={10}
-          textAlignVertical="top"
-          value={plainText}
-          onChangeText={setPlainText}
-        />
+          <Text style={[styles.label, { color: theme.accent, marginTop: 20 }]}>Text Notes</Text>
+          <TextInput 
+            style={[styles.textArea, { backgroundColor: theme.card, color: theme.title, borderColor: theme.border }]}
+            placeholder="Upload PDF to extract notes, or paste your notes manually..."
+            placeholderTextColor={theme.subtext}
+            multiline
+            numberOfLines={10}
+            textAlignVertical="top"
+            value={plainText}
+            onChangeText={setPlainText}
+          />
 
-        <Pressable 
-          disabled={processingPdf}
-          style={[styles.submitBtn, { backgroundColor: theme.buttons, opacity: processingPdf ? 0.6 : 1, borderColor: theme.accent, borderWidth: 1 }]} 
-          onPress={handleSave}
-        >
-          <Text style={[styles.submitBtnText, { color: theme.accent }]}>Save Notes</Text>
-        </Pressable>
-      </ScrollView>
+          <Pressable 
+            disabled={processingPdf}
+            style={[styles.submitBtn, { backgroundColor: theme.buttons, opacity: processingPdf ? 0.6 : 1, borderColor: theme.accent, borderWidth: 1 }]} 
+            onPress={handleSave}
+          >
+            <Text style={[styles.submitBtnText, { color: theme.accent }]}>Save Notes</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* THEME MATCHING CUSTOM MODAL FOR ALERTS */}
       <Modal
@@ -248,6 +271,7 @@ export default function AddQuestions() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  keyboardView: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', padding: 20, gap: 20 },
   backBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
