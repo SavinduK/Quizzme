@@ -20,11 +20,26 @@ import { Colors } from './constants/theme';
 
 const FALLBACK_GEMINI_API_KEY = ""; 
 
-// Past Papers Directory & Key File
+// Past Papers Directory & Settings File
 const PAST_PAPERS_DIR = `${FileSystem.documentDirectory}pastpapers/`;
-const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
+const SETTINGS_FILE_URI = `${FileSystem.documentDirectory}settings.json`;
 
 type FormatMode = 'AUTO' | 'JSON';
+
+interface ApiKeyItem {
+  id: string;
+  label: string;
+  key: string;
+}
+
+interface SettingsData {
+  apiKeys?: ApiKeyItem[];
+  activeKeyId?: string;
+  selectedModel?: string;
+  qCount?: number;
+  qStyle?: string;
+  customPrompt?: string;
+}
 
 export default function AddPastPaper() {
   const [subject, setSubject] = useState('');
@@ -45,6 +60,38 @@ export default function AddPastPaper() {
   const showAlert = (title: string, message: string, type: 'success' | 'error' = 'success', onDismiss = () => {}) => {
     setAlertData({ title, message, type, onDismiss });
     setAlertVisible(true);
+  };
+
+  // Helper to load active key and selected model settings from JSON
+  const getActiveSettings = async (): Promise<{ apiKey: string; model: string }> => {
+    let apiKey = FALLBACK_GEMINI_API_KEY;
+    let model = 'gemini-2.5-flash';
+
+    try {
+      const fileCheck = await FileSystem.getInfoAsync(SETTINGS_FILE_URI);
+      if (fileCheck.exists) {
+        const rawJson = await FileSystem.readAsStringAsync(SETTINGS_FILE_URI);
+        const settings: SettingsData = JSON.parse(rawJson);
+
+        if (settings.selectedModel) {
+          model = settings.selectedModel;
+        }
+
+        if (settings.apiKeys && settings.apiKeys.length > 0) {
+          const activeKeyObj = settings.apiKeys.find((k) => k.id === settings.activeKeyId);
+          if (activeKeyObj && activeKeyObj.key.trim()) {
+            apiKey = activeKeyObj.key.trim();
+          } else if (settings.apiKeys[0].key.trim()) {
+            // Fallback to the first available key if no active ID match is found
+            apiKey = settings.apiKeys[0].key.trim();
+          }
+        }
+      }
+    } catch (keyError) {
+      console.warn("Could not read settings.json, relying on fallback configurations.", keyError);
+    }
+
+    return { apiKey, model };
   };
 
   // Utility to clean markdown wrappers or preambles from AI outputs
@@ -86,21 +133,14 @@ export default function AddPastPaper() {
       } 
       // --- GEMINI AI AUTO-DETECT GENERATION PATH ---
       else {
-        // 1. Resolve dynamic API key configuration
-        let activeApiKey = FALLBACK_GEMINI_API_KEY;
-        try {
-          const keyFileCheck = await FileSystem.getInfoAsync(KEY_FILE_URI);
-          if (keyFileCheck.exists) {
-            const storedKey = await FileSystem.readAsStringAsync(KEY_FILE_URI);
-            if (storedKey.trim().length > 0) {
-              activeApiKey = storedKey.trim().split("\n")[0];
-              console.log(activeApiKey)
-            }
-          }
-        } catch (keyError) {
-          console.warn("Could not read local key.txt, relying on default key.", keyError);
+        // 1. Resolve dynamic API key and selected model from settings.json
+        const { apiKey: activeApiKey, model: selectedModel } = await getActiveSettings();
+
+        if (!activeApiKey) {
+          throw new Error("No API Key found. Please add an API Key in Configuration Settings.");
         }
-      const systemPrompt = `Analyze the provided past paper text and classify each question into its appropriate format by looking into the way the answers are given:
+
+        const systemPrompt = `Analyze the provided past paper text and classify each question into its appropriate format by looking into the way the answers are given:
       - "MCQ" (Multiple Choice)
       - "TF" (True/False with multiple statements)
       - "SA" (Short Answer)
@@ -118,33 +158,34 @@ export default function AddPastPaper() {
       4. SEQ:
         { "type": "SEQ", "question": "Main Topic", "sub_questions": [{"sub_question": "string", "marks": 5, "answer_key": "string"}], "model_answer": "string" }`;
 
-          const prompt = `${systemPrompt}\n\nPast Paper Content Text:\n${rawText}`;
+        const prompt = `${systemPrompt}\n\nPast Paper Content Text:\n${rawText}`;
 
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { responseMimeType: "application/json" }
-              })
-            }
-          );
-          const resData = await response.json();
-          console.log(resData)
+        const response = await fetch(
+          `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){selectedModel}:generateContent?key=${activeApiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: "application/json" }
+            })
+          }
+        );
+        
+        const resData = await response.json();
+
         // Check for explicit API error response
         if (resData.error) {
           throw new Error(`API Error (${resData.error.code}): ${resData.error.message}`);
         }
-       console.log(resData)
-       const rawModelOutput = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        const rawModelOutput = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!rawModelOutput) {
           throw new Error("No response returned from the AI model.");
         }
 
-        // 4. Clean and parse JSON payload
+        // Clean and parse JSON payload
         const cleanedJsonText = cleanJsonText(rawModelOutput);
         const parsedJson = JSON.parse(cleanedJsonText);
         formattedJsonString = JSON.stringify(parsedJson, null, 2);

@@ -23,7 +23,22 @@ const FALLBACK_GEMINI_API_KEY = "";
 
 // Directory and File paths
 const QUESTIONS_DIR = `${FileSystem.documentDirectory}questions/`;
-const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
+const SETTINGS_FILE_URI = `${FileSystem.documentDirectory}settings.json`;
+
+interface ApiKeyItem {
+  id: string;
+  label: string;
+  key: string;
+}
+
+interface SettingsData {
+  apiKeys?: ApiKeyItem[];
+  activeKeyId?: string;
+  selectedModel?: string;
+  qCount?: number;
+  qStyle?: string;
+  customPrompt?: string;
+}
 
 export default function AddQuestions() {
   const [subject, setSubject] = useState('');
@@ -46,6 +61,38 @@ export default function AddQuestions() {
     setAlertVisible(true);
   };
 
+  // Helper to load settings from JSON
+  const getActiveSettings = async (): Promise<{ apiKey: string; model: string }> => {
+    let apiKey = FALLBACK_GEMINI_API_KEY;
+    let model = 'gemini-2.5-flash';
+
+    try {
+      const fileCheck = await FileSystem.getInfoAsync(SETTINGS_FILE_URI);
+      if (fileCheck.exists) {
+        const rawJson = await FileSystem.readAsStringAsync(SETTINGS_FILE_URI);
+        const settings: SettingsData = JSON.parse(rawJson);
+
+        if (settings.selectedModel) {
+          model = settings.selectedModel;
+        }
+
+        if (settings.apiKeys && settings.apiKeys.length > 0) {
+          const activeKeyObj = settings.apiKeys.find((k) => k.id === settings.activeKeyId);
+          if (activeKeyObj && activeKeyObj.key.trim()) {
+            apiKey = activeKeyObj.key.trim();
+          } else if (settings.apiKeys[0].key.trim()) {
+            // Fallback to the first key if no active key ID is matched
+            apiKey = settings.apiKeys[0].key.trim();
+          }
+        }
+      }
+    } catch (keyError) {
+      console.warn("Could not read settings.json, relying on fallback configurations.", keyError);
+    }
+
+    return { apiKey, model };
+  };
+
   // Requests document picking permissions, reads binary array values, and streams data directly to Gemini
   const handlePdfUpload = async () => {
     try {
@@ -60,19 +107,11 @@ export default function AddQuestions() {
       setAttachedFileName(pickedFile.name);
       setProcessingPdf(true);
 
-      // 1. Resolve dynamic API Key configuration from file storage
-      let activeApiKey = FALLBACK_GEMINI_API_KEY;
-      try {
-        const keyFileCheck = await FileSystem.getInfoAsync(KEY_FILE_URI);
-        if (keyFileCheck.exists) {
-          const storedKey = await FileSystem.readAsStringAsync(KEY_FILE_URI);
-          if (storedKey.trim().length > 0) {
-            activeApiKey = storedKey.trim().split('\n')[0];
-            console.log(activeApiKey)
-          }
-        }
-      } catch (keyError) {
-        console.warn("Could not read local key.txt, relying on default token assignment.", keyError);
+      // 1. Resolve active API Key and selected model configuration from JSON storage
+      const { apiKey: activeApiKey, model: selectedModel } = await getActiveSettings();
+
+      if (!activeApiKey) {
+        throw new Error("No API Key found. Please add an API Key in Configuration Settings.");
       }
 
       // 2. Convert local temporary cache URI into standard base64 chunk strings
@@ -82,8 +121,8 @@ export default function AddQuestions() {
 
       const prompt = "Extract and structure all core study and subject-related information found inside this document. Automatically fix any clear typos or errors, and add helpful clarifications where concepts need context. Structure the final output beautifully using clear Markdown (including headings, bullet points, tables, and blockquotes where appropriate) to ensure the notes are highly clean, scannable, and informative.";
 
-      // 3. Transmit base64 inline structures alongside active resolved key configuration
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
+      // 3. Transmit base64 inline structures alongside active model & key configuration
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${activeApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -102,6 +141,11 @@ export default function AddQuestions() {
       });
 
       const resData = await response.json();
+
+      if (resData.error) {
+        throw new Error(resData.error.message || "Failed to parse document with Gemini API.");
+      }
+
       const extractedText = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!extractedText) {
@@ -109,10 +153,10 @@ export default function AddQuestions() {
       }
 
       setPlainText(extractedText);
-      showAlert("Success", "PDF text extracted and populated successfully.", 'success');
-    } catch (error) {
+      showAlert("Success", `PDF text extracted successfully using ${selectedModel}.`, 'success');
+    } catch (error: any) {
       console.error(error);
-      showAlert("Extraction Error", "Failed to parse information from the selected PDF. Please check your network or try again.", 'error');
+      showAlert("Extraction Error", error?.message || "Failed to parse information from the selected PDF. Please check your settings or network connection.", 'error');
       setAttachedFileName(null);
     } finally {
       setProcessingPdf(false);

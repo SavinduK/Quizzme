@@ -28,7 +28,7 @@ const QUESTIONS_DIR = `${FileSystem.documentDirectory}questions/`;
 const CACHE_DIR = `${FileSystem.documentDirectory}cached-questions/`;
 const SUMMARY_DIR = `${FileSystem.documentDirectory}summaries/`;
 const PAST_PAPERS_DIR = `${FileSystem.documentDirectory}pastpapers/`;
-const KEY_FILE_URI = `${FileSystem.documentDirectory}key.txt`;
+const SETTINGS_FILE_URI = `${FileSystem.documentDirectory}settings.json`;
 const FALLBACK_GEMINI_API_KEY = "";
 
 interface SeqSubQuestion {
@@ -53,6 +53,21 @@ interface CardBlock {
   title: string;
   content: string;
   type: 'heading' | 'paragraph' | 'quote';
+}
+
+interface ApiKeyConfig {
+  id: string;
+  label: string;
+  key: string;
+}
+
+interface SettingsConfig {
+  apiKeys?: ApiKeyConfig[];
+  activeKeyId?: string;
+  selectedModel?: string;
+  qCount?: number | string;
+  qStyle?: string;
+  customPrompt?: string;
 }
 
 function parseMarkdownToCards(markdown: string): CardBlock[] {
@@ -248,33 +263,48 @@ export default function LessonReaderScreen() {
     setSeqUserNotes("");
   };
 
-  const fetchApiKeyConfig = async () => {
-    let activeApiKey = FALLBACK_GEMINI_API_KEY;
-    let targetCount = 5;
-    let targetStyle = 'MCQ';
-    let customPrompt = "";
+ 
 
-    try {
-      const keyFileCheck = await FileSystem.getInfoAsync(KEY_FILE_URI);
-      if (keyFileCheck.exists) {
-        const lines = (await FileSystem.readAsStringAsync(KEY_FILE_URI)).split('\n');
-        if (lines[0]) activeApiKey = lines[0].trim();
-        if (lines[1]) targetCount = parseInt(lines[1].trim(), 10) || 5;
-        if (lines[2]) {
-          const parsedStyle = lines[2].trim().toUpperCase();
-          if (parsedStyle === 'TF') targetStyle = 'TF';
-          else if (parsedStyle === 'SA') targetStyle = 'SA';
-          else if (parsedStyle === 'SEQ') targetStyle = 'SEQ';
-          else targetStyle = 'MCQ';
+const fetchApiKeyConfig = async () => {
+  let activeApiKey = FALLBACK_GEMINI_API_KEY;
+  let targetCount = 5;
+  let targetStyle = 'MCQ';
+  let customPrompt = '';
+  let selectedModel = 'gemini-2.5-flash';
+
+  try {
+    const settingsCheck = await FileSystem.getInfoAsync(SETTINGS_FILE_URI);
+    if (settingsCheck.exists) {
+      const rawJson = await FileSystem.readAsStringAsync(SETTINGS_FILE_URI);
+      const settings: SettingsConfig = JSON.parse(rawJson);
+      if (Array.isArray(settings.apiKeys) && settings.activeKeyId) {
+        const activeObj = settings.apiKeys.find((k) => k.id === settings.activeKeyId);
+        if (activeObj?.key) {
+          activeApiKey = activeObj.key;
         }
-        if (lines[3]) customPrompt = lines[3].trim();
       }
-    } catch (e) {
-      console.warn("Using default key settings.", e);
+      if (settings.selectedModel) {
+        selectedModel = settings.selectedModel;
+      }
+      if (settings.qCount !== undefined) {
+        targetCount = typeof settings.qCount === 'number' ? settings.qCount : parseInt(settings.qCount, 10) || 5;
+      }
+      if (settings.qStyle) {
+        const parsedStyle = settings.qStyle.trim().toUpperCase();
+        if (['TF', 'SA', 'SEQ', 'MCQ'].includes(parsedStyle)) {
+          targetStyle = parsedStyle;
+        }
+      }
+      if (settings.customPrompt) {
+        customPrompt = settings.customPrompt;
+      }
     }
-
-    return { activeApiKey, targetCount, targetStyle, customPrompt };
-  };
+  } catch (e) {
+    console.warn("Using default key settings.", e);
+  }
+  console.log(activeApiKey, targetCount, targetStyle, customPrompt, selectedModel)
+  return { activeApiKey, targetCount, targetStyle, customPrompt, selectedModel };
+};
 
   const launchDeck = async () => {
     if (!params.filename) return;
@@ -288,7 +318,8 @@ export default function LessonReaderScreen() {
     const specificCacheUri = `${CACHE_DIR}${jsonCacheFilename}`;
 
     try {
-      const { activeApiKey, targetCount, targetStyle, customPrompt } = await fetchApiKeyConfig();
+      const { activeApiKey, targetCount, targetStyle, customPrompt, selectedModel } = await fetchApiKeyConfig();
+      console.log(activeApiKey, targetCount, targetStyle, customPrompt, selectedModel);
 
       setIsTFQuiz(targetStyle === 'TF');
       setIsSAQuiz(targetStyle === 'SA');
@@ -307,14 +338,17 @@ export default function LessonReaderScreen() {
         prompt = `Based on the complete source material provided, construct ${targetCount} comprehensive Structured Essay Questions (SEQs) that systematically cover the entire lecture content. Each SEQ must revolve around a core topic from the lecture and contain 2 to 4 sub-questions ranging from short recall/definitions to detailed analytical essay prompts. Provide exhaustive model answers and structured marking rubrics for every sub-question. Return strictly a JSON object with a key "questions" containing an array. Structure: {"questions": [{"question": "Main Topic", "sub_questions": [{"sub_question": "(a) Define X...", "marks": 5, "answer_key": "Details"}], "model_answer": "Complete essay"}]}.${customPrompt} \nSource material text:${targetStr}`;
       }
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${activeApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
+          })
+        }
+      );
 
       const resData = await response.json();
       const rawJsonText = resData.candidates[0].content.parts[0].text;
@@ -393,7 +427,7 @@ export default function LessonReaderScreen() {
   setIsProcessingPastPaper(true);
 
   try {
-    const { activeApiKey, customPrompt } = await fetchApiKeyConfig();
+    const { activeApiKey, customPrompt,selectedModel } = await fetchApiKeyConfig();
 
     const systemPrompt = `Analyze the provided past paper text and classify each question into its appropriate format by looking into the way the answers are given:
 - "MCQ" (Multiple Choice)
@@ -416,7 +450,7 @@ Target Schemas per question type:
     const prompt = `${systemPrompt}\n${customPrompt || ""}\n\nPast Paper Content Text:\n${pastPaperInputText}`;
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${activeApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

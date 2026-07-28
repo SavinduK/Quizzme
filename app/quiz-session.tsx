@@ -51,7 +51,7 @@ export default function QuestionSession() {
           }
         }
       }
-      setFilesMeta(builds);
+      setFilesMeta(builds.reverse());
     } catch (e) {
       console.error(e);
     }
