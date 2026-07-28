@@ -1,12 +1,14 @@
 import { FontAwesome5 } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -28,6 +30,7 @@ const QUESTIONS_DIR = `${FileSystem.documentDirectory}questions/`;
 const CACHE_DIR = `${FileSystem.documentDirectory}cached-questions/`;
 const SUMMARY_DIR = `${FileSystem.documentDirectory}summaries/`;
 const PAST_PAPERS_DIR = `${FileSystem.documentDirectory}pastpapers/`;
+const HANDWRITTEN_DIR = `${FileSystem.documentDirectory}handwritten_notes/`;
 const SETTINGS_FILE_URI = `${FileSystem.documentDirectory}settings.json`;
 const FALLBACK_GEMINI_API_KEY = "";
 
@@ -117,13 +120,17 @@ function parseMarkdownToCards(markdown: string): CardBlock[] {
 
 export default function LessonReaderScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ filename: string; lesson: string; initialTab?: 'notes' | 'quiz' | 'summary' | 'past_paper' }>();
+  const params = useLocalSearchParams<{ filename: string; lesson: string; initialTab?: 'notes' | 'quiz' | 'summary' | 'past_paper' | 'handwritten' }>();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
 
   const [loading, setLoading] = useState(true);
   const [readingContent, setReadingContent] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'notes' | 'quiz' | 'summary' | 'past_paper'>(params.initialTab || 'notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'quiz' | 'summary' | 'past_paper' | 'handwritten'>(params.initialTab || 'notes');
+
+  // Handwritten Image Notes State
+  const [handwrittenImages, setHandwrittenImages] = useState<string[]>([]);
+  const [loadingHandwritten, setLoadingHandwritten] = useState<boolean>(false);
 
   // Summary State
   const [summaryContent, setSummaryContent] = useState<string>('');
@@ -175,6 +182,7 @@ export default function LessonReaderScreen() {
         const content = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${params.filename}`);
         setReadingContent(content);
         await loadSavedPastPaper();
+        await loadHandwrittenNotes();
       } catch (e) {
         console.error(e);
         Alert.alert('Error', 'Could not load lesson contents.');
@@ -193,6 +201,103 @@ export default function LessonReaderScreen() {
     }
   }, [params.initialTab]);
 
+  /* ---------------- Handwritten Notes Logic ---------------- */
+  const getLessonNotesDir = () => {
+    if (!params.filename) return '';
+    const cleanName = params.filename.replace(/\.[^/.]+$/, "");
+    return `${HANDWRITTEN_DIR}${cleanName}/`;
+  };
+
+  const loadHandwrittenNotes = async () => {
+    if (!params.filename) return;
+    try {
+      setLoadingHandwritten(true);
+      const lessonNotesFolder = getLessonNotesDir();
+      const folderInfo = await FileSystem.getInfoAsync(lessonNotesFolder);
+      if (folderInfo.exists) {
+        const files = await FileSystem.readDirectoryAsync(lessonNotesFolder);
+        const imageUris = files.map(file => `${lessonNotesFolder}${file}`);
+        setHandwrittenImages(imageUris.reverse());
+      }
+    } catch (e) {
+      console.warn("Could not load handwritten notes:", e);
+    } finally {
+      setLoadingHandwritten(false);
+    }
+  };
+
+  const savePickedImage = async (uri: string) => {
+    try {
+      const lessonNotesFolder = getLessonNotesDir();
+      const folderInfo = await FileSystem.getInfoAsync(lessonNotesFolder);
+      if (!folderInfo.exists) {
+        await FileSystem.makeDirectoryAsync(lessonNotesFolder, { intermediates: true });
+      }
+
+      const fileName = `note_${Date.now()}.jpg`;
+      const targetPath = `${lessonNotesFolder}${fileName}`;
+      await FileSystem.copyAsync({ from: uri, to: targetPath });
+
+      setHandwrittenImages(prev => [targetPath, ...prev]);
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "Could not save photo note.");
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert("Permission required", "Camera permission is required to take photo notes.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]?.uri) {
+      await savePickedImage(result.assets[0].uri);
+    }
+  };
+
+  const handlePickGalleryImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert("Permission required", "Gallery permission is required to import notes.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]?.uri) {
+      await savePickedImage(result.assets[0].uri);
+    }
+  };
+
+  const handleDeleteHandwrittenNote = async (imageUri: string) => {
+    Alert.alert("Delete Note", "Are you sure you want to delete this handwritten note?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await FileSystem.deleteAsync(imageUri, { idempotent: true });
+            setHandwrittenImages(prev => prev.filter(img => img !== imageUri));
+          } catch (e) {
+            Alert.alert("Error", "Failed to delete handwritten image note.");
+          }
+        },
+      },
+    ]);
+  };
+
+  /* ---------------- Past Paper & Quiz Logic ---------------- */
   const getPastPaperFileUri = () => {
     if (!params.filename) return '';
     const jsonFileName = params.filename.replace(/\.[^/.]+$/, "") + ".json";
@@ -263,48 +368,45 @@ export default function LessonReaderScreen() {
     setSeqUserNotes("");
   };
 
- 
+  const fetchApiKeyConfig = async () => {
+    let activeApiKey = FALLBACK_GEMINI_API_KEY;
+    let targetCount = 5;
+    let targetStyle = 'MCQ';
+    let customPrompt = '';
+    let selectedModel = 'gemini-2.5-flash';
 
-const fetchApiKeyConfig = async () => {
-  let activeApiKey = FALLBACK_GEMINI_API_KEY;
-  let targetCount = 5;
-  let targetStyle = 'MCQ';
-  let customPrompt = '';
-  let selectedModel = 'gemini-2.5-flash';
-
-  try {
-    const settingsCheck = await FileSystem.getInfoAsync(SETTINGS_FILE_URI);
-    if (settingsCheck.exists) {
-      const rawJson = await FileSystem.readAsStringAsync(SETTINGS_FILE_URI);
-      const settings: SettingsConfig = JSON.parse(rawJson);
-      if (Array.isArray(settings.apiKeys) && settings.activeKeyId) {
-        const activeObj = settings.apiKeys.find((k) => k.id === settings.activeKeyId);
-        if (activeObj?.key) {
-          activeApiKey = activeObj.key;
+    try {
+      const settingsCheck = await FileSystem.getInfoAsync(SETTINGS_FILE_URI);
+      if (settingsCheck.exists) {
+        const rawJson = await FileSystem.readAsStringAsync(SETTINGS_FILE_URI);
+        const settings: SettingsConfig = JSON.parse(rawJson);
+        if (Array.isArray(settings.apiKeys) && settings.activeKeyId) {
+          const activeObj = settings.apiKeys.find((k) => k.id === settings.activeKeyId);
+          if (activeObj?.key) {
+            activeApiKey = activeObj.key;
+          }
+        }
+        if (settings.selectedModel) {
+          selectedModel = settings.selectedModel;
+        }
+        if (settings.qCount !== undefined) {
+          targetCount = typeof settings.qCount === 'number' ? settings.qCount : parseInt(settings.qCount, 10) || 5;
+        }
+        if (settings.qStyle) {
+          const parsedStyle = settings.qStyle.trim().toUpperCase();
+          if (['TF', 'SA', 'SEQ', 'MCQ'].includes(parsedStyle)) {
+            targetStyle = parsedStyle;
+          }
+        }
+        if (settings.customPrompt) {
+          customPrompt = settings.customPrompt;
         }
       }
-      if (settings.selectedModel) {
-        selectedModel = settings.selectedModel;
-      }
-      if (settings.qCount !== undefined) {
-        targetCount = typeof settings.qCount === 'number' ? settings.qCount : parseInt(settings.qCount, 10) || 5;
-      }
-      if (settings.qStyle) {
-        const parsedStyle = settings.qStyle.trim().toUpperCase();
-        if (['TF', 'SA', 'SEQ', 'MCQ'].includes(parsedStyle)) {
-          targetStyle = parsedStyle;
-        }
-      }
-      if (settings.customPrompt) {
-        customPrompt = settings.customPrompt;
-      }
+    } catch (e) {
+      console.warn("Using default key settings.", e);
     }
-  } catch (e) {
-    console.warn("Using default key settings.", e);
-  }
-  console.log(activeApiKey, targetCount, targetStyle, customPrompt, selectedModel)
-  return { activeApiKey, targetCount, targetStyle, customPrompt, selectedModel };
-};
+    return { activeApiKey, targetCount, targetStyle, customPrompt, selectedModel };
+  };
 
   const launchDeck = async () => {
     if (!params.filename) return;
@@ -319,7 +421,6 @@ const fetchApiKeyConfig = async () => {
 
     try {
       const { activeApiKey, targetCount, targetStyle, customPrompt, selectedModel } = await fetchApiKeyConfig();
-      console.log(activeApiKey, targetCount, targetStyle, customPrompt, selectedModel);
 
       setIsTFQuiz(targetStyle === 'TF');
       setIsSAQuiz(targetStyle === 'SA');
@@ -418,91 +519,71 @@ const fetchApiKeyConfig = async () => {
     }
   };
 
- const handleConvertPlaintextWithGemini = async () => {
-  if (!pastPaperInputText.trim()) {
-    Alert.alert("Error", "Text input cannot be empty.");
-    return;
-  }
-  
-  setIsProcessingPastPaper(true);
+  const handleConvertPlaintextWithGemini = async () => {
+    if (!pastPaperInputText.trim()) {
+      Alert.alert("Error", "Text input cannot be empty.");
+      return;
+    }
+    
+    setIsProcessingPastPaper(true);
 
-  try {
-    const { activeApiKey, customPrompt,selectedModel } = await fetchApiKeyConfig();
+    try {
+      const { activeApiKey, customPrompt, selectedModel } = await fetchApiKeyConfig();
 
-    const systemPrompt = `Analyze the provided past paper text and classify each question into its appropriate format by looking into the way the answers are given:
+      const systemPrompt = `Analyze the provided past paper text and classify each question into its appropriate format by looking into the way the answers are given:
 - "MCQ" (Multiple Choice)
 - "TF" (True/False with multiple statements)
 - "SA" (Short Answer)
 - "SEQ" (Structured Essay)
 
-Extract and return a JSON object with a single key "questions" containing an array of classified questions. 
+Extract and return a JSON object with a single key "questions" containing an array of classified questions.`;
 
-Target Schemas per question type:
-1. MCQ:
-   { "type": "MCQ", "question": "string", "options": ["opt1", "opt2", "opt3", "opt4", "opt5"], "correct_answer": "exact_matching_option_string", "explanation": "string" }
-2. TF:
-   { "type": "TF", "question": "topic context string", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false], "explanation": "string" }
-3. SA:
-   { "type": "SA", "question": "string", "correct_answer": "string", "explanation": "string" }
-4. SEQ:
-   { "type": "SEQ", "question": "Main Topic", "sub_questions": [{"sub_question": "string", "marks": 5, "answer_key": "string"}], "model_answer": "string" }`;
+      const prompt = `${systemPrompt}\n${customPrompt || ""}\n\nPast Paper Content Text:\n${pastPaperInputText}`;
 
-    const prompt = `${systemPrompt}\n${customPrompt || ""}\n\nPast Paper Content Text:\n${pastPaperInputText}`;
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${activeApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
+          })
+        }
+      );
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${activeApiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
+      const resData = await response.json();
+      
+      if (!resData.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error("Invalid response structural format received from Gemini.");
       }
-    );
 
-    const resData = await response.json();
-    console.log(resData)
-    
-    // Safety check for empty or broken response
-    if (!resData.candidates?.[0]?.content?.parts?.[0]?.text) {
-      throw new Error("Invalid response structural format received from Gemini.");
+      const rawJsonText = resData.candidates[0].content.parts[0].text;
+      
+      const dirInfo = await FileSystem.getInfoAsync(PAST_PAPERS_DIR);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(PAST_PAPERS_DIR, { intermediates: true });
+      }
+      const targetPath = getPastPaperFileUri();
+      await FileSystem.writeAsStringAsync(targetPath, rawJsonText);
+
+      const parsed = JSON.parse(rawJsonText);
+      const targetDeck: QuizQuestion[] = parsed.questions || parsed;
+
+      setPastPaperDeck(targetDeck);
+      setCurrentQuestionIdx(0);
+      setRunningScore(0);
+      setQuizFinished(false);
+      resetQuestionStates();
+      
+      Alert.alert("Conversion Successful", "Past Paper auto-detected and saved to memory.");
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "Could not process text via Gemini AI.");
+    } finally {
+      setIsProcessingPastPaper(false);
     }
-
-    const rawJsonText = resData.candidates[0].content.parts[0].text;
-    
-    // Save raw response
-    const dirInfo = await FileSystem.getInfoAsync(PAST_PAPERS_DIR);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(PAST_PAPERS_DIR, { intermediates: true });
-    }
-    const targetPath = getPastPaperFileUri();
-    await FileSystem.writeAsStringAsync(targetPath, rawJsonText);
-
-    // Parse output
-    const parsed = JSON.parse(rawJsonText);
-    const targetDeck: QuizQuestion[] = parsed.questions || parsed;
-
-    // Check primary question type based on the first detected item in the array
-    //const primaryType = targetDeck[0]?.type;
-    //setIsTFQuiz(primaryType === 'TF');
-    //setIsSAQuiz(primaryType === 'SA');
-    //setIsSEQQuiz(primaryType === 'SEQ');
-
-    setPastPaperDeck(targetDeck);
-    setCurrentQuestionIdx(0);
-    setRunningScore(0);
-    setQuizFinished(false);
-    resetQuestionStates();
-    
-    Alert.alert("Conversion Successful", "Past Paper auto-detected and saved to memory.");
-  } catch (e) {
-    console.error(e);
-    Alert.alert("Error", "Could not process text via Gemini AI.");
-  } finally {
-    setIsProcessingPastPaper(false);
-  }
-};
+  };
 
   const handleClearPastPaper = async () => {
     try {
@@ -550,7 +631,7 @@ Target Schemas per question type:
       setSummaryStatus("Connecting to AI engine...");
       const { activeApiKey } = await fetchApiKeyConfig();
 
-      const prompt = `You are a world-class academic summarizer. Read the following source text and provide a comprehensive, clear, and highly structured summary. Use Markdown features natively: clear Headings (# and ##), bulleted takeaway lists, bold terms for critical definitions, and short focused paragraphs. Avoid code block syntax envelopes or wrappers—just send the raw Markdown text.\n\nSource Text:\n${sourceText}`;
+      const prompt = `You are a world-class academic summarizer. Read the following source text and provide a comprehensive, clear, and highly structured summary. Use Markdown features natively: clear Headings (# and ##), bulleted takeaway lists, bold terms for critical definitions, and short focused paragraphs.\n\nSource Text:\n${sourceText}`;
 
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
         method: 'POST',
@@ -574,7 +655,7 @@ Target Schemas per question type:
     }
   };
 
-  const handleTabPress = (tab: 'notes' | 'quiz' | 'summary' | 'past_paper') => {
+  const handleTabPress = (tab: 'notes' | 'quiz' | 'summary' | 'past_paper' | 'handwritten') => {
     setActiveTab(tab);
     if (tab === 'quiz' && !activeDeck && !loadingQuiz) {
       launchDeck();
@@ -582,6 +663,8 @@ Target Schemas per question type:
       fetchOrGenerateSummary();
     } else if (tab === 'past_paper' && !pastPaperDeck) {
       loadSavedPastPaper();
+    } else if (tab === 'handwritten') {
+      loadHandwrittenNotes();
     }
   };
 
@@ -692,39 +775,49 @@ Target Schemas per question type:
       </View>
 
       {/* Horizontal Tab Navigation */}
-      <View style={[styles.tabContainer, { backgroundColor: theme.buttons ?? '#f2f2f2' }]}>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'notes' && [styles.activeTab, { backgroundColor: theme.background }]]}
-          onPress={() => handleTabPress('notes')}
-        >
-          <FontAwesome5 name="book-open" size={12} color={activeTab === 'notes' ? theme.accent : theme.subtext} />
-          <Text style={[styles.tabText, { color: activeTab === 'notes' ? theme.accent : theme.subtext }]}>Notes</Text>
-        </TouchableOpacity>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScrollWrapper}>
+        <View style={[styles.tabContainer, { backgroundColor: theme.buttons ?? '#f2f2f2' }]}>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'notes' && [styles.activeTab, { backgroundColor: theme.background }]]}
+            onPress={() => handleTabPress('notes')}
+          >
+            <FontAwesome5 name="book-open" size={12} color={activeTab === 'notes' ? theme.accent : theme.subtext} />
+            <Text style={[styles.tabText, { color: activeTab === 'notes' ? theme.accent : theme.subtext }]}>Notes</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'quiz' && [styles.activeTab, { backgroundColor: theme.background }]]}
-          onPress={() => handleTabPress('quiz')}
-        >
-          <FontAwesome5 name="bolt" size={12} color={activeTab === 'quiz' ? theme.accent : theme.subtext} />
-          <Text style={[styles.tabText, { color: activeTab === 'quiz' ? theme.accent : theme.subtext }]}>Quiz</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'handwritten' && [styles.activeTab, { backgroundColor: theme.background }]]}
+            onPress={() => handleTabPress('handwritten')}
+          >
+            <FontAwesome5 name="camera" size={12} color={activeTab === 'handwritten' ? theme.accent : theme.subtext} />
+            <Text style={[styles.tabText, { color: activeTab === 'handwritten' ? theme.accent : theme.subtext }]}>Handwritten</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'summary' && [styles.activeTab, { backgroundColor: theme.background }]]}
-          onPress={() => handleTabPress('summary')}
-        >
-          <FontAwesome5 name="file-alt" size={12} color={activeTab === 'summary' ? theme.accent : theme.subtext} />
-          <Text style={[styles.tabText, { color: activeTab === 'summary' ? theme.accent : theme.subtext }]}>Summary</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'quiz' && [styles.activeTab, { backgroundColor: theme.background }]]}
+            onPress={() => handleTabPress('quiz')}
+          >
+            <FontAwesome5 name="bolt" size={12} color={activeTab === 'quiz' ? theme.accent : theme.subtext} />
+            <Text style={[styles.tabText, { color: activeTab === 'quiz' ? theme.accent : theme.subtext }]}>Quiz</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'past_paper' && [styles.activeTab, { backgroundColor: theme.background }]]}
-          onPress={() => handleTabPress('past_paper')}
-        >
-          <FontAwesome5 name="history" size={12} color={activeTab === 'past_paper' ? theme.accent : theme.subtext} />
-          <Text style={[styles.tabText, { color: activeTab === 'past_paper' ? theme.accent : theme.subtext }]}>Past Paper</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'summary' && [styles.activeTab, { backgroundColor: theme.background }]]}
+            onPress={() => handleTabPress('summary')}
+          >
+            <FontAwesome5 name="file-alt" size={12} color={activeTab === 'summary' ? theme.accent : theme.subtext} />
+            <Text style={[styles.tabText, { color: activeTab === 'summary' ? theme.accent : theme.subtext }]}>Summary</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'past_paper' && [styles.activeTab, { backgroundColor: theme.background }]]}
+            onPress={() => handleTabPress('past_paper')}
+          >
+            <FontAwesome5 name="history" size={12} color={activeTab === 'past_paper' ? theme.accent : theme.subtext} />
+            <Text style={[styles.tabText, { color: activeTab === 'past_paper' ? theme.accent : theme.subtext }]}>Past Paper</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
 
       {/* Dynamic Tab Body */}
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
@@ -742,6 +835,60 @@ Target Schemas per question type:
           >
             {readingContent}
           </Markdown>
+        )}
+
+        {/* Handwritten Image Notes View Component */}
+        {activeTab === 'handwritten' && (
+          <View style={styles.handwrittenContainer}>
+            <Text style={[styles.pastPaperTitleText, { color: theme.text, marginBottom: 12 }]}>
+              Handwritten Notes
+            </Text>
+
+            {/* Action Buttons to Take/Pick Photo */}
+            <View style={styles.handwrittenBtnRow}>
+              <TouchableOpacity
+                style={[styles.handwrittenActionBtn, { backgroundColor: theme.accent }]}
+                onPress={handleTakePhoto}
+              >
+                <FontAwesome5 name="camera" size={14} color="#FFF" style={{ marginRight: 6 }} />
+                <Text style={styles.btnText}>Take Photo</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.handwrittenActionBtn, { backgroundColor: theme.buttons, borderWidth: 1, borderColor: theme.border }]}
+                onPress={handlePickGalleryImage}
+              >
+                <FontAwesome5 name="image" size={14} color={theme.text} style={{ marginRight: 6 }} />
+                <Text style={[styles.btnText, { color: theme.text }]}>Import Photo</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Scroll View displaying images */}
+            {loadingHandwritten ? (
+              <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 20 }} />
+            ) : handwrittenImages.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <FontAwesome5 name="file-image" size={40} color={theme.subtext} />
+                <Text style={{ color: theme.subtext, marginTop: 12, textAlign: 'center' }}>
+                  No handwritten photo notes attached yet. Take or import a photo to keep notes attached to this lesson.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={{ width: '100%' }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                {handwrittenImages.map((uri, idx) => (
+                  <View key={idx} style={[styles.handwrittenCard, { borderColor: theme.border, backgroundColor: theme.card ?? theme.buttons }]}>
+                    <Image source={{ uri }} style={styles.handwrittenImage} resizeMode="contain" />
+                    <TouchableOpacity
+                      style={styles.deleteNoteBtn}
+                      onPress={() => handleDeleteHandwrittenNote(uri)}
+                    >
+                      <FontAwesome5 name="trash-alt" size={14} color="#FF453A" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
         )}
 
         {activeTab === 'quiz' && (
@@ -841,7 +988,6 @@ Target Schemas per question type:
 
         {activeTab === 'past_paper' && (
           <View>
-            {/* Past Paper Section Header & Menu Trigger */}
             <View style={styles.pastPaperHeaderRow}>
               <Text style={[styles.pastPaperTitleText, { color: theme.text }]}>
                 Past Paper Questions
@@ -857,7 +1003,6 @@ Target Schemas per question type:
                     <FontAwesome5 name="ellipsis-v" size={16} color={theme.text} />
                   </TouchableOpacity>
 
-                  {/* Dropdown Options List */}
                   {showPastPaperMenu && (
                     <View style={[styles.dropdownMenu, { backgroundColor: theme.card ?? theme.buttons, borderColor: theme.border }]}>
                       <TouchableOpacity
@@ -1086,21 +1231,24 @@ const styles = StyleSheet.create({
   lessonTitleLarge: { fontSize: 20, fontWeight: '700', lineHeight: 30, textTransform: 'uppercase' },
 
   /* Horizontal Tab Bar */
+  tabScrollWrapper: {
+    maxHeight: 50,
+    marginVertical: 10,
+  },
   tabContainer: {
     flexDirection: 'row',
     marginHorizontal: 15,
-    marginVertical: 12,
     padding: 4,
     borderRadius: 12,
   },
   tabButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
+    paddingHorizontal: 14,
     borderRadius: 8,
-    gap: 4,
+    gap: 6,
   },
   activeTab: {
     elevation: 2,
@@ -1118,6 +1266,49 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  /* Handwritten Tab Styles */
+  handwrittenContainer: {
+    paddingVertical: 10,
+  },
+  handwrittenBtnRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  handwrittenActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  handwrittenCard: {
+    position: 'relative',
+    marginBottom: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  handwrittenImage: {
+    width: '100%',
+    aspectRatio :9/19.5
+  },
+  deleteNoteBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: 8,
+    borderRadius: 20,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
   },
 
   /* Floating Action Button (FAB) */
