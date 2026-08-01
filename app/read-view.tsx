@@ -32,6 +32,7 @@ const SUMMARY_DIR = `${FileSystem.documentDirectory}summaries/`;
 const PAST_PAPERS_DIR = `${FileSystem.documentDirectory}pastpapers/`;
 const HANDWRITTEN_DIR = `${FileSystem.documentDirectory}handwritten_notes/`;
 const SETTINGS_FILE_URI = `${FileSystem.documentDirectory}settings.json`;
+const CONFIG_FILE_URI = `${FileSystem.documentDirectory}config.json`;
 const FALLBACK_GEMINI_API_KEY = "";
 
 interface SeqSubQuestion {
@@ -72,6 +73,61 @@ interface SettingsConfig {
   qStyle?: string;
   customPrompt?: string;
 }
+
+interface CompletedRecord {
+  score: number;
+  maxPossibleScore: number;
+  percentage: number;
+  completedAt: string;
+  questionType: string; // Adds question format tracking
+}
+
+interface PerformanceConfig {
+  quizzes?: Record<string, CompletedRecord[]>;
+  pastPapers?: Record<string, CompletedRecord[]>;
+}
+
+/* Helper function to persist scores in config.json */
+const saveScoreToConfigJson = async (
+  lessonName: string,
+  type: 'quiz' | 'past_paper',
+  score: number,
+  maxPossibleScore: number,
+  questionType: string
+) => {
+  try {
+    let currentConfig: PerformanceConfig = { quizzes: {}, pastPapers: {} };
+    const configCheck = await FileSystem.getInfoAsync(CONFIG_FILE_URI);
+
+    if (configCheck.exists) {
+      const rawConfig = await FileSystem.readAsStringAsync(CONFIG_FILE_URI);
+      currentConfig = JSON.parse(rawConfig);
+      if (!currentConfig.quizzes) currentConfig.quizzes = {};
+      if (!currentConfig.pastPapers) currentConfig.pastPapers = {};
+    }
+
+    const percentage = maxPossibleScore > 0 ? Math.round((score / maxPossibleScore) * 100) : 0;
+    const newRecord: CompletedRecord = {
+      score,
+      maxPossibleScore,
+      percentage,
+      completedAt: new Date().toISOString(),
+      questionType, // Persisted into config.json
+    };
+
+    const targetCategory: any = type === 'past_paper' ? currentConfig.pastPapers : currentConfig.quizzes;
+    
+    if (!targetCategory[lessonName]) {
+      targetCategory[lessonName] = [];
+    }
+    
+    targetCategory[lessonName].push(newRecord);
+
+    await FileSystem.writeAsStringAsync(CONFIG_FILE_URI, JSON.stringify(currentConfig, null, 2));
+  } catch (e) {
+    console.warn("Could not record performance score to config.json:", e);
+  }
+};
 
 /* ---------------- Auto-Scaling Handwritten Image Component ---------------- */
 function ScaledHandwrittenImage({ uri, onDelete, theme }: { uri: string; onDelete: () => void; theme: any }) {
@@ -231,7 +287,7 @@ export default function LessonReaderScreen() {
     }
   }, [params.initialTab]);
 
-  /* ---------------- Handwritten Notes Logic ---------------- */
+  /* ---------------- Handwritten Notes Logic (With Crop Support) ---------------- */
   const getLessonNotesDir = () => {
     if (!params.filename) return '';
     const cleanName = params.filename.replace(/\.[^/.]+$/, "");
@@ -284,6 +340,7 @@ export default function LessonReaderScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true, // Enables Cropping UI
       quality: 0.8,
     });
 
@@ -301,6 +358,7 @@ export default function LessonReaderScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true, // Enables Cropping UI
       quality: 0.8,
     });
 
@@ -438,6 +496,37 @@ export default function LessonReaderScreen() {
     return { activeApiKey, targetCount, targetStyle, customPrompt, selectedModel };
   };
 
+  const getAllPastPapersReference = async (): Promise<string> => {
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(PAST_PAPERS_DIR);
+      if (!dirInfo.exists) return '';
+
+      const files = await FileSystem.readDirectoryAsync(PAST_PAPERS_DIR);
+      const jsonFiles = files.filter((f) => f.endsWith('.json'));
+      if (jsonFiles.length === 0) return '';
+
+      const paperTexts: string[] = [];
+      for (const file of jsonFiles) {
+        try {
+          const rawJson = await FileSystem.readAsStringAsync(`${PAST_PAPERS_DIR}${file}`);
+          const parsed = JSON.parse(rawJson);
+          const questions: QuizQuestion[] = parsed.questions || (Array.isArray(parsed) ? parsed : [parsed]);
+          if (Array.isArray(questions) && questions.length > 0) {
+            paperTexts.push(`--- Past Paper: ${file} ---\n${JSON.stringify(questions, null, 2)}`);
+          }
+        } catch (innerErr) {
+          console.warn(`Could not parse past paper file ${file}:`, innerErr);
+        }
+      }
+
+      if (paperTexts.length === 0) return '';
+      return `\n\nReference Past Papers (use these ONLY as a style, format, and difficulty reference to align the new questions with real exam patterns — do NOT copy them verbatim, generate fresh, non-duplicate questions inspired by their patterns):\n${paperTexts.join('\n\n')}`;
+    } catch (e) {
+      console.warn("Could not load past papers reference:", e);
+      return '';
+    }
+  };
+
   const launchDeck = async () => {
     if (!params.filename) return;
     setLoadingQuiz(true);
@@ -457,16 +546,17 @@ export default function LessonReaderScreen() {
       setIsSEQQuiz(targetStyle === 'SEQ');
 
       const targetStr = readingContent || await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${params.filename}`);
+      const pastPapersReference = await getAllPastPapersReference();
       let prompt = "";
 
       if (targetStyle === 'MCQ') {
-        prompt = `Based on the following source material text, generate exactly ${targetCount} multiple choice questions. Each question must have exactly 5 distinct options. Provide a brief explanation for why the correct answer is correct. Return the data strictly as a JSON object containing an array called "questions". Each item in the array must contain "question" (string), "options" (array of 5 strings), "correct_answer" (string matching exactly one of the options), and "explanation" (string).${customPrompt} \nSource material text:${targetStr}`;
+        prompt = `Based on the following source material text, generate exactly ${targetCount} multiple choice questions. Each question must have exactly 5 distinct options. Provide a brief explanation for why the correct answer is correct. Return the data strictly as a JSON object containing an array called "questions". Each item in the array must contain "question" (string), "options" (array of 5 strings), "correct_answer" (string matching exactly one of the options), and "explanation" (string).${customPrompt}${pastPapersReference} \nSource material text:${targetStr}`;
       } else if (targetStyle === 'TF') {
-        prompt = `Based on the following source material text, generate exactly ${targetCount} True/False style questions. Each item must contain a header topic text called "question", and an array of exactly 5 distinct conceptual statements related to it. For each statement, provide its corresponding boolean true/false answer value. Include an "explanation" string giving a concise rationale for the overall set or key statements. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string context", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false], "explanation": "string rationale"}]}.${customPrompt} \nSource material text:${targetStr}`;
+        prompt = `Based on the following source material text, generate exactly ${targetCount} True/False style questions. Each item must contain a header topic text called "question", and an array of exactly 5 distinct conceptual statements related to it. For each statement, provide its corresponding boolean true/false answer value. Include an "explanation" string giving a concise rationale for the overall set or key statements. Return data strictly as a JSON object containing an array called "questions". Structure: {"questions": [{"question": "string context", "statements": ["s1", "s2", "s3", "s4", "s5"], "answers": [true, false, true, true, false], "explanation": "string rationale"}]}.${customPrompt}${pastPapersReference} \nSource material text:${targetStr}`;
       } else if (targetStyle === 'SA') {
-        prompt = `Based on the following source material text, generate exactly ${targetCount} clear conceptual short answer questions. Return the data strictly as a JSON object containing an array called "questions". Each item must contain "question" (string), "correct_answer" (string representing the definitive brief answer key phrase), and "explanation" (string explaining the underlying core context completely).${customPrompt} \nSource material text:${targetStr}`;
+        prompt = `Based on the following source material text, generate exactly ${targetCount} clear conceptual short answer questions. Return the data strictly as a JSON object containing an array called "questions". Each item must contain "question" (string), "correct_answer" (string representing the definitive brief answer key phrase), and "explanation" (string explaining the underlying core context completely).${customPrompt}${pastPapersReference} \nSource material text:${targetStr}`;
       } else {
-        prompt = `Based on the complete source material provided, construct ${targetCount} comprehensive Structured Essay Questions (SEQs) that systematically cover the entire lecture content. Each SEQ must revolve around a core topic from the lecture and contain 2 to 4 sub-questions ranging from short recall/definitions to detailed analytical essay prompts. Provide exhaustive model answers and structured marking rubrics for every sub-question. Return strictly a JSON object with a key "questions" containing an array. Structure: {"questions": [{"question": "Main Topic", "sub_questions": [{"sub_question": "(a) Define X...", "marks": 5, "answer_key": "Details"}], "model_answer": "Complete essay"}]}.${customPrompt} \nSource material text:${targetStr}`;
+        prompt = `Based on the complete source material provided, construct ${targetCount} comprehensive Structured Essay Questions (SEQs) that systematically cover the entire lecture content. Each SEQ must revolve around a core topic from the lecture and contain 2 to 4 sub-questions ranging from short recall/definitions to detailed analytical essay prompts. Provide exhaustive model answers and structured marking rubrics for every sub-question. Return strictly a JSON object with a key "questions" containing an array. Structure: {"questions": [{"question": "Main Topic", "sub_questions": [{"sub_question": "(a) Define X...", "marks": 5, "answer_key": "Details"}], "model_answer": "Complete essay"}]}.${customPrompt}${pastPapersReference} \nSource material text:${targetStr}`;
       }
 
       const response = await fetch(
@@ -698,17 +788,33 @@ Extract and return a JSON object with a single key "questions" containing an arr
     }
   };
 
-  const handleNextQuestion = () => {
-    const currentActiveDeck = activeTab === 'past_paper' ? pastPaperDeck : activeDeck;
-    if (!currentActiveDeck) return;
-    if (currentQuestionIdx + 1 < currentActiveDeck.length) {
-      setCurrentQuestionIdx(p => p + 1);
-      resetQuestionStates();
-    } else {
-      setQuizFinished(true);
-    }
-  };
+  const currentDeckRef = activeTab === 'past_paper' ? pastPaperDeck : activeDeck;
+  const maxPossibleScore = currentDeckRef
+    ? (isTFQuiz ? currentDeckRef.length * 5 : (isSEQQuiz ? currentDeckRef.length * 10 : currentDeckRef.length))
+    : 0;
 
+  const handleNextQuestion = async () => {
+  const currentActiveDeck = activeTab === 'past_paper' ? pastPaperDeck : activeDeck;
+  if (!currentActiveDeck) return;
+
+  if (currentQuestionIdx + 1 < currentActiveDeck.length) {
+    setCurrentQuestionIdx(p => p + 1);
+    resetQuestionStates();
+  } else {
+    setQuizFinished(true);
+    if (params.lesson) {
+      // Determine question type based on state flags
+      const questionType = isTFQuiz ? 'tf' : isSEQQuiz ? 'seq' : isSAQuiz ? 'sa' : 'mcq';
+      await saveScoreToConfigJson(
+        params.lesson,
+        activeTab === 'past_paper' ? 'past_paper' : 'quiz',
+        runningScore,
+        maxPossibleScore,
+        questionType
+      );
+    }
+  }
+};
   const evaluateTfQuestion = () => {
     const currentActiveDeck = activeTab === 'past_paper' ? pastPaperDeck : activeDeck;
     if (!currentActiveDeck) return;
@@ -729,11 +835,6 @@ Extract and return a JSON object with a single key "questions" containing an arr
     setRunningScore(p => p + finalClampedQScore);
     setTfChecked(true);
   };
-
-  const currentDeckRef = activeTab === 'past_paper' ? pastPaperDeck : activeDeck;
-  const maxPossibleScore = currentDeckRef
-    ? (isTFQuiz ? currentDeckRef.length * 5 : (isSEQQuiz ? currentDeckRef.length * 10 : currentDeckRef.length))
-    : 0;
 
   const handleOpenEditModal = () => {
     setEditableText(readingContent);

@@ -27,6 +27,19 @@ export default function Footer() {
         <Text style={[styles.tabText, { color: isActive('/') ? theme.accent : theme.subtext }]}>Home</Text>
       </Pressable>
 
+      {/* quiz TAB */}
+      <Pressable 
+        style={styles.tab} 
+        onPress={() => router.replace('/quiz')}
+      >
+        <FontAwesome5 
+          name="atom" 
+          size={18} 
+          color={isActive('/quiz') ? theme.accent : theme.subtext} 
+        />
+        <Text style={[styles.tabText, { color: isActive('/quiz') ? theme.accent : theme.subtext }]}>Quiz</Text>
+      </Pressable>
+
       {/* PRACTICE TAB */}
       <Pressable 
         style={styles.tab} 
@@ -91,7 +104,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tabText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     marginTop: 4,
   },

@@ -42,6 +42,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { 
     fontSize: 24, 
+    textTransform:'capitalize',
     fontWeight: '800', 
     letterSpacing: -0.5 
   },

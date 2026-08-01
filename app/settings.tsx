@@ -183,7 +183,6 @@ export default function Settings() {
     setIsExporting(true);
     try {
       if (Platform.OS === 'android') {
-        // Request directory permission using StorageAccessFramework
         const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
         if (!permissions.granted) {
           setIsExporting(false);
@@ -192,7 +191,6 @@ export default function Settings() {
 
         const baseDirectoryUri = permissions.directoryUri;
 
-        // 1. Export App Folders (Supports Subdirectories)
         for (const dirUri of APP_DIRS) {
           const dirName = dirUri.split('/').slice(-2)[0];
           const dirInfo = await FileSystem.getInfoAsync(dirUri);
@@ -212,7 +210,6 @@ export default function Settings() {
           }
         }
 
-        // 2. Export Settings File
         const settingsInfo = await FileSystem.getInfoAsync(SETTINGS_FILE_URI);
         if (settingsInfo.exists) {
           const settingsContent = await FileSystem.readAsStringAsync(SETTINGS_FILE_URI);
@@ -226,7 +223,6 @@ export default function Settings() {
 
         showAlert('Export Complete', 'All app files and directories exported successfully.', 'success');
       } else {
-        // iOS: Bundle files into a zip or share settings file directly
         const isSharingAvailable = await Sharing.isAvailableAsync();
         if (isSharingAvailable && (await FileSystem.getInfoAsync(SETTINGS_FILE_URI)).exists) {
           await Sharing.shareAsync(SETTINGS_FILE_URI);
@@ -274,7 +270,6 @@ export default function Settings() {
     setIsImporting(true);
     try {
       if (Platform.OS === 'android') {
-        // Pick a directory to restore from
         const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
         if (!permissions.granted) {
           setIsImporting(false);
@@ -287,7 +282,6 @@ export default function Settings() {
         for (const itemUri of subFilesAndFolders) {
           const decodedUri = decodeURIComponent(itemUri);
 
-          // Handle Settings File
           if (decodedUri.endsWith('settings.json')) {
             const content = await FileSystem.readAsStringAsync(itemUri);
             await FileSystem.writeAsStringAsync(SETTINGS_FILE_URI, content);
@@ -295,7 +289,6 @@ export default function Settings() {
             continue;
           }
 
-          // Handle Folders
           for (const localDir of APP_DIRS) {
             const folderName = localDir.split('/').slice(-2)[0];
             if (decodedUri.includes(folderName)) {
@@ -306,7 +299,6 @@ export default function Settings() {
 
         showAlert('Import Complete', 'App data restored successfully from chosen directory.', 'success');
       } else {
-        // iOS Document Picker Fallback
         const result = await DocumentPicker.getDocumentAsync({
           type: 'application/json',
           copyToCacheDirectory: true,
@@ -365,7 +357,7 @@ export default function Settings() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: theme.background }]}>
       <Header title="Configuration Settings" />
 
       <KeyboardAvoidingView
@@ -523,6 +515,69 @@ export default function Settings() {
             )}
 
             <View style={[styles.horizontalBar, { backgroundColor: theme.border }]} />
+            
+            {/* SECTION 3: BACKUP & RESTORE DATA */}
+            <Pressable style={styles.accordionHeader} onPress={() => setDataExpanded(!dataExpanded)}>
+              <Text style={[styles.sectionTitle, { color: theme.accent }]}>Backup & Restore</Text>
+              <FontAwesome5 name={dataExpanded ? 'chevron-up' : 'chevron-down'} size={12} color={theme.accent} />
+            </Pressable>
+
+            {dataExpanded && (
+              <View style={styles.configCard}>
+                <View style={styles.buttonOptionRow}>
+                  {/* EXPORT BUTTON */}
+                  <Pressable
+                    style={[
+                      styles.saveBtn,
+                      styles.flexButton,
+                      {
+                        backgroundColor: theme.buttons,
+                        borderColor: theme.accent,
+                        borderWidth: 1,
+                        opacity: isExporting ? 0.7 : 1,
+                      },
+                    ]}
+                    onPress={handleExportData}
+                    disabled={isExporting}
+                  >
+                    {isExporting ? (
+                      <ActivityIndicator size="small" color={theme.accent} />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="folder-plus" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                        <Text style={[styles.saveBtnText, { color: theme.accent }]}>Export</Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  {/* IMPORT BUTTON */}
+                  <Pressable
+                    style={[
+                      styles.saveBtn,
+                      styles.flexButton,
+                      {
+                        backgroundColor: theme.buttons,
+                        borderColor: theme.accent,
+                        borderWidth: 1,
+                        opacity: isImporting ? 0.7 : 1,
+                      },
+                    ]}
+                    onPress={handleImportData}
+                    disabled={isImporting}
+                  >
+                    {isImporting ? (
+                      <ActivityIndicator size="small" color={theme.accent} />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="folder-open" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                        <Text style={[styles.saveBtnText, { color: theme.accent }]}>Import</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            )}
+            <View style={[styles.horizontalBar, { backgroundColor: theme.border }]} />
 
             {/* SECTION 2: QUIZ SETTINGS */}
             <Pressable style={styles.accordionHeader} onPress={() => setQuizExpanded(!quizExpanded)}>
@@ -531,7 +586,7 @@ export default function Settings() {
             </Pressable>
 
             {quizExpanded && (
-              <View style={styles.configCard}>
+              <View style={[styles.configCard]}>
                 <View style={styles.settingRow}>
                   <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Number of Questions</Text>
                   <View style={styles.buttonOptionRow}>
@@ -662,75 +717,13 @@ export default function Settings() {
                 </Pressable>
               </View>
             )}
-
-            <View style={[styles.horizontalBar, { backgroundColor: theme.border }]} />
-
-            {/* SECTION 3: BACKUP & RESTORE DATA */}
-            <Pressable style={styles.accordionHeader} onPress={() => setDataExpanded(!dataExpanded)}>
-              <Text style={[styles.sectionTitle, { color: theme.accent }]}>Backup & Restore</Text>
-              <FontAwesome5 name={dataExpanded ? 'chevron-up' : 'chevron-down'} size={12} color={theme.accent} />
-            </Pressable>
-
-            {dataExpanded && (
-              <View style={styles.configCard}>
-                <View style={styles.buttonOptionRow}>
-                  {/* EXPORT BUTTON */}
-                  <Pressable
-                    style={[
-                      styles.saveBtn,
-                      styles.flexButton,
-                      {
-                        backgroundColor: theme.buttons,
-                        borderColor: theme.accent,
-                        borderWidth: 1,
-                        opacity: isExporting ? 0.7 : 1,
-                      },
-                    ]}
-                    onPress={handleExportData}
-                    disabled={isExporting}
-                  >
-                    {isExporting ? (
-                      <ActivityIndicator size="small" color={theme.accent} />
-                    ) : (
-                      <>
-                        <FontAwesome5 name="folder-plus" size={14} color={theme.accent} style={{ marginRight: 8 }} />
-                        <Text style={[styles.saveBtnText, { color: theme.accent }]}>Export</Text>
-                      </>
-                    )}
-                  </Pressable>
-
-                  {/* IMPORT BUTTON */}
-                  <Pressable
-                    style={[
-                      styles.saveBtn,
-                      styles.flexButton,
-                      {
-                        backgroundColor: theme.buttons,
-                        borderColor: theme.accent,
-                        borderWidth: 1,
-                        opacity: isImporting ? 0.7 : 1,
-                      },
-                    ]}
-                    onPress={handleImportData}
-                    disabled={isImporting}
-                  >
-                    {isImporting ? (
-                      <ActivityIndicator size="small" color={theme.accent} />
-                    ) : (
-                      <>
-                        <FontAwesome5 name="folder-open" size={14} color={theme.accent} style={{ marginRight: 8 }} />
-                        <Text style={[styles.saveBtnText, { color: theme.accent }]}>Import</Text>
-                      </>
-                    )}
-                  </Pressable>
-                </View>
-              </View>
-            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Footer />
+      <SafeAreaView edges={['bottom']} style={{ backgroundColor: theme.background }}>
+        <Footer />
+      </SafeAreaView>
 
       {/* ADD API KEY MODAL */}
       <Modal
@@ -820,7 +813,7 @@ export default function Settings() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   keyboardView: { flex: 1 },
-  scrollContent: { flexGrow: 1 },
+  scrollContent: { flexGrow: 1, paddingBottom: 40 },
   content: { flex: 1, paddingHorizontal: 25, paddingVertical: 20 },
   accordionHeader: {
     flexDirection: 'row',
