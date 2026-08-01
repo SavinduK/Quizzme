@@ -73,6 +73,36 @@ interface SettingsConfig {
   customPrompt?: string;
 }
 
+/* ---------------- Auto-Scaling Handwritten Image Component ---------------- */
+function ScaledHandwrittenImage({ uri, onDelete, theme }: { uri: string; onDelete: () => void; theme: any }) {
+  const [aspectRatio, setAspectRatio] = useState<number>(1);
+
+  useEffect(() => {
+    Image.getSize(
+      uri,
+      (width, height) => {
+        if (width && height) {
+          setAspectRatio(width / height);
+        }
+      },
+      (error) => console.warn('Could not scale image:', error)
+    );
+  }, [uri]);
+
+  return (
+    <View style={[styles.handwrittenCard, { borderColor: theme.border, backgroundColor: theme.card ?? theme.buttons }]}>
+      <Image
+        source={{ uri }}
+        style={[styles.handwrittenImage, { aspectRatio }]}
+        resizeMode="contain"
+      />
+      <TouchableOpacity style={styles.deleteNoteBtn} onPress={onDelete}>
+        <FontAwesome5 name="trash-alt" size={14} color="#FF453A" />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function parseMarkdownToCards(markdown: string): CardBlock[] {
   if (!markdown) return [];
   const sections = markdown.split(/\n(?=# |\n)/g).filter(Boolean);
@@ -863,7 +893,7 @@ Extract and return a JSON object with a single key "questions" containing an arr
               </TouchableOpacity>
             </View>
 
-            {/* Scroll View displaying images */}
+            {/* Scroll View displaying dynamically scaled images */}
             {loadingHandwritten ? (
               <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 20 }} />
             ) : handwrittenImages.length === 0 ? (
@@ -876,15 +906,12 @@ Extract and return a JSON object with a single key "questions" containing an arr
             ) : (
               <ScrollView style={{ width: '100%' }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
                 {handwrittenImages.map((uri, idx) => (
-                  <View key={idx} style={[styles.handwrittenCard, { borderColor: theme.border, backgroundColor: theme.card ?? theme.buttons }]}>
-                    <Image source={{ uri }} style={styles.handwrittenImage} resizeMode="contain" />
-                    <TouchableOpacity
-                      style={styles.deleteNoteBtn}
-                      onPress={() => handleDeleteHandwrittenNote(uri)}
-                    >
-                      <FontAwesome5 name="trash-alt" size={14} color="#FF453A" />
-                    </TouchableOpacity>
-                  </View>
+                  <ScaledHandwrittenImage
+                    key={idx}
+                    uri={uri}
+                    theme={theme}
+                    onDelete={() => handleDeleteHandwrittenNote(uri)}
+                  />
                 ))}
               </ScrollView>
             )}
@@ -1294,13 +1321,12 @@ const styles = StyleSheet.create({
   },
   handwrittenImage: {
     width: '100%',
-    aspectRatio :9/19.5
   },
   deleteNoteBtn: {
     position: 'absolute',
     top: 10,
     right: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     padding: 8,
     borderRadius: 20,
   },

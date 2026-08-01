@@ -1,6 +1,8 @@
 import { FontAwesome5 } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useFocusEffect } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,7 +22,16 @@ import Footer from './components/footer';
 import Header from './components/header';
 import { Colors } from './constants/theme';
 
+// Directories and Files
 const SETTINGS_FILE_URI = `${FileSystem.documentDirectory}settings.json`;
+
+const APP_DIRS = [
+  `${FileSystem.documentDirectory}questions/`,
+  `${FileSystem.documentDirectory}cached-questions/`,
+  `${FileSystem.documentDirectory}summaries/`,
+  `${FileSystem.documentDirectory}pastpapers/`,
+  `${FileSystem.documentDirectory}handwritten_notes/`,
+];
 
 export interface ApiKeyItem {
   id: string;
@@ -57,18 +68,21 @@ export default function Settings() {
   const [qCount, setQCount] = useState<number>(5);
   const [qStyle, setQStyle] = useState<'MCQ' | 'TF' | 'SA' | 'SEQ'>('MCQ');
   const [customPrompt, setCustomPrompt] = useState<string>('');
-  
-  // New Key Modal & Inputs State
+
+  // Modals & Progress
   const [isAddKeyModalVisible, setIsAddKeyModalVisible] = useState(false);
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [newKeyValue, setNewKeyValue] = useState('');
   const [showApiKeyMap, setShowApiKeyMap] = useState<Record<string, boolean>>({});
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   // Accordion Sections
   const [aiExpanded, setAiExpanded] = useState(true);
   const [quizExpanded, setQuizExpanded] = useState(true);
+  const [dataExpanded, setDataExpanded] = useState(true);
 
   // Alert Modal
   const [alertVisible, setAlertVisible] = useState(false);
@@ -105,7 +119,7 @@ export default function Settings() {
     }, [])
   );
 
-  // Save Settings as Structured JSON
+  // Save Settings
   const handleSaveSettings = async () => {
     setIsSaving(true);
     try {
@@ -128,6 +142,192 @@ export default function Settings() {
     }
   };
 
+  // --- RECURSIVE HELPER FOR EXPORT ---
+  const exportDirectoryRecursive = async (sourceDirUri: string, targetSafDirUri: string) => {
+    const items = await FileSystem.readDirectoryAsync(sourceDirUri);
+    for (const item of items) {
+      const itemUri = `${sourceDirUri}${item}`;
+      const itemInfo = await FileSystem.getInfoAsync(itemUri);
+
+      if (itemInfo.isDirectory) {
+        let subSafUri = '';
+        try {
+          subSafUri = await FileSystem.StorageAccessFramework.makeDirectoryAsync(
+            targetSafDirUri,
+            item
+          );
+        } catch (e) {
+          subSafUri = `${targetSafDirUri}%2F${item}`;
+        }
+        await exportDirectoryRecursive(`${itemUri}/`, subSafUri);
+      } else {
+        const fileContent = await FileSystem.readAsStringAsync(itemUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const createdFileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+          targetSafDirUri,
+          item,
+          'application/octet-stream'
+        );
+
+        await FileSystem.writeAsStringAsync(createdFileUri, fileContent, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
+    }
+  };
+
+  // --- EXPORT FUNCTIONALITY ---
+  const handleExportData = async () => {
+    setIsExporting(true);
+    try {
+      if (Platform.OS === 'android') {
+        // Request directory permission using StorageAccessFramework
+        const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (!permissions.granted) {
+          setIsExporting(false);
+          return;
+        }
+
+        const baseDirectoryUri = permissions.directoryUri;
+
+        // 1. Export App Folders (Supports Subdirectories)
+        for (const dirUri of APP_DIRS) {
+          const dirName = dirUri.split('/').slice(-2)[0];
+          const dirInfo = await FileSystem.getInfoAsync(dirUri);
+
+          if (dirInfo.exists && dirInfo.isDirectory) {
+            let targetSubDirUri = '';
+            try {
+              targetSubDirUri = await FileSystem.StorageAccessFramework.makeDirectoryAsync(
+                baseDirectoryUri,
+                dirName
+              );
+            } catch (e) {
+              targetSubDirUri = `${baseDirectoryUri}%2F${dirName}`;
+            }
+
+            await exportDirectoryRecursive(dirUri, targetSubDirUri);
+          }
+        }
+
+        // 2. Export Settings File
+        const settingsInfo = await FileSystem.getInfoAsync(SETTINGS_FILE_URI);
+        if (settingsInfo.exists) {
+          const settingsContent = await FileSystem.readAsStringAsync(SETTINGS_FILE_URI);
+          const createdSettingsUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            baseDirectoryUri,
+            'settings.json',
+            'application/json'
+          );
+          await FileSystem.writeAsStringAsync(createdSettingsUri, settingsContent);
+        }
+
+        showAlert('Export Complete', 'All app files and directories exported successfully.', 'success');
+      } else {
+        // iOS: Bundle files into a zip or share settings file directly
+        const isSharingAvailable = await Sharing.isAvailableAsync();
+        if (isSharingAvailable && (await FileSystem.getInfoAsync(SETTINGS_FILE_URI)).exists) {
+          await Sharing.shareAsync(SETTINGS_FILE_URI);
+          showAlert('Export Complete', 'Shared settings file.', 'success');
+        } else {
+          showAlert('Export Error', 'Sharing is not available on this device.', 'error');
+        }
+      }
+    } catch (e) {
+      console.error('Export error:', e);
+      showAlert('Export Failed', 'An error occurred while exporting files.', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // --- RECURSIVE HELPER FOR IMPORT ---
+  const restoreDirectoryRecursive = async (safDirUri: string, localDirUri: string) => {
+    await FileSystem.makeDirectoryAsync(localDirUri, { intermediates: true });
+    const items = await FileSystem.StorageAccessFramework.readDirectoryAsync(safDirUri);
+
+    for (const itemUri of items) {
+      const decodedUri = decodeURIComponent(itemUri);
+      const itemName = decodedUri.split('/').pop() || '';
+      if (!itemName) continue;
+
+      const itemInfo = await FileSystem.getInfoAsync(itemUri);
+
+      if (itemInfo.isDirectory) {
+        await restoreDirectoryRecursive(itemUri, `${localDirUri}${itemName}/`);
+      } else {
+        const content = await FileSystem.readAsStringAsync(itemUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        await FileSystem.writeAsStringAsync(`${localDirUri}${itemName}`, content, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
+    }
+  };
+
+  // --- IMPORT FUNCTIONALITY ---
+  const handleImportData = async () => {
+    setIsImporting(true);
+    try {
+      if (Platform.OS === 'android') {
+        // Pick a directory to restore from
+        const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (!permissions.granted) {
+          setIsImporting(false);
+          return;
+        }
+
+        const pickedDirUri = permissions.directoryUri;
+        const subFilesAndFolders = await FileSystem.StorageAccessFramework.readDirectoryAsync(pickedDirUri);
+
+        for (const itemUri of subFilesAndFolders) {
+          const decodedUri = decodeURIComponent(itemUri);
+
+          // Handle Settings File
+          if (decodedUri.endsWith('settings.json')) {
+            const content = await FileSystem.readAsStringAsync(itemUri);
+            await FileSystem.writeAsStringAsync(SETTINGS_FILE_URI, content);
+            await loadSettings();
+            continue;
+          }
+
+          // Handle Folders
+          for (const localDir of APP_DIRS) {
+            const folderName = localDir.split('/').slice(-2)[0];
+            if (decodedUri.includes(folderName)) {
+              await restoreDirectoryRecursive(itemUri, localDir);
+            }
+          }
+        }
+
+        showAlert('Import Complete', 'App data restored successfully from chosen directory.', 'success');
+      } else {
+        // iOS Document Picker Fallback
+        const result = await DocumentPicker.getDocumentAsync({
+          type: 'application/json',
+          copyToCacheDirectory: true,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const fileUri = result.assets[0].uri;
+          const content = await FileSystem.readAsStringAsync(fileUri);
+          await FileSystem.writeAsStringAsync(SETTINGS_FILE_URI, content);
+          await loadSettings();
+          showAlert('Import Complete', 'Settings imported successfully.', 'success');
+        }
+      }
+    } catch (e) {
+      console.error('Import error:', e);
+      showAlert('Import Failed', 'Failed to import files from the selected directory.', 'error');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   // Key Actions
   const handleAddKey = () => {
     if (!newKeyValue.trim()) {
@@ -145,10 +345,7 @@ export default function Settings() {
     const updatedKeys = [...apiKeys, newEntry];
     setApiKeys(updatedKeys);
 
-    // If no key is currently active, set this new key as active
-    if (!activeKeyId) {
-      setActiveKeyId(newId);
-    }
+    if (!activeKeyId) setActiveKeyId(newId);
 
     setNewKeyLabel('');
     setNewKeyValue('');
@@ -182,26 +379,19 @@ export default function Settings() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.content}>
-
             {/* SECTION 1: AI ENGINE & KEYS */}
-            <Pressable
-              style={styles.accordionHeader}
-              onPress={() => setAiExpanded(!aiExpanded)}
-            >
+            <Pressable style={styles.accordionHeader} onPress={() => setAiExpanded(!aiExpanded)}>
               <Text style={[styles.sectionTitle, { color: theme.accent }]}>AI Engine & Credentials</Text>
-              <FontAwesome5
-                name={aiExpanded ? 'chevron-up' : 'chevron-down'}
-                size={12}
-                color={theme.accent}
-              />
+              <FontAwesome5 name={aiExpanded ? 'chevron-up' : 'chevron-down'} size={12} color={theme.accent} />
             </Pressable>
 
             {aiExpanded && (
               <View style={styles.configCard}>
-
                 {/* MODEL SELECTOR BUTTONS */}
                 <View style={styles.settingRow}>
-                  <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Select Gemini Model</Text>
+                  <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>
+                    Select Gemini Model
+                  </Text>
                   <View style={styles.gridContainer}>
                     <View style={styles.buttonOptionRow}>
                       {AVAILABLE_MODELS.slice(0, 2).map((item) => (
@@ -211,11 +401,19 @@ export default function Settings() {
                             styles.normalOptionBtn,
                             styles.flexButton,
                             { borderColor: theme.border },
-                            selectedModel === item.value && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                            selectedModel === item.value && {
+                              backgroundColor: theme.buttons,
+                              borderColor: theme.accent,
+                            },
                           ]}
                           onPress={() => setSelectedModel(item.value)}
                         >
-                          <Text style={[styles.normalOptionText, { color: selectedModel === item.value ? '#fff' : theme.title }]}>
+                          <Text
+                            style={[
+                              styles.normalOptionText,
+                              { color: selectedModel === item.value ? '#fff' : theme.title },
+                            ]}
+                          >
                             {item.label}
                           </Text>
                         </Pressable>
@@ -229,11 +427,19 @@ export default function Settings() {
                             styles.normalOptionBtn,
                             styles.flexButton,
                             { borderColor: theme.border },
-                            selectedModel === item.value && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                            selectedModel === item.value && {
+                              backgroundColor: theme.buttons,
+                              borderColor: theme.accent,
+                            },
                           ]}
                           onPress={() => setSelectedModel(item.value)}
                         >
-                          <Text style={[styles.normalOptionText, { color: selectedModel === item.value ? '#fff' : theme.title }]}>
+                          <Text
+                            style={[
+                              styles.normalOptionText,
+                              { color: selectedModel === item.value ? '#fff' : theme.title },
+                            ]}
+                          >
                             {item.label}
                           </Text>
                         </Pressable>
@@ -242,7 +448,7 @@ export default function Settings() {
                   </View>
                 </View>
 
-                {/* API KEYS LIST WITH HEADER ADD BUTTON */}
+                {/* API KEYS LIST */}
                 <View style={styles.settingRow}>
                   <View style={styles.sectionHeaderRow}>
                     <Text style={[styles.inputLabel, { color: theme.title }]}>API Keys</Text>
@@ -254,7 +460,7 @@ export default function Settings() {
                       <Text style={[styles.headerAddBtnText, { color: theme.accent }]}>Add Key</Text>
                     </Pressable>
                   </View>
-                  
+
                   {apiKeys.length === 0 ? (
                     <Text style={[styles.subText, { color: theme.subtext, marginTop: 4, marginBottom: 10 }]}>
                       No keys added yet. Click "+ Add Key" above to include one.
@@ -268,7 +474,10 @@ export default function Settings() {
                           key={item.id}
                           style={[
                             styles.keyCard,
-                            { borderColor: isActive ? theme.accent : theme.border, backgroundColor: theme.background }
+                            {
+                              borderColor: isActive ? theme.accent : theme.border,
+                              backgroundColor: theme.background,
+                            },
                           ]}
                           onPress={() => setActiveKeyId(item.id)}
                         >
@@ -298,7 +507,11 @@ export default function Settings() {
                               {isVisible ? item.key : '••••••••••••••••••••' + item.key.slice(-4)}
                             </Text>
                             <Pressable onPress={() => toggleVisibility(item.id)} hitSlop={8}>
-                              <FontAwesome5 name={isVisible ? 'eye' : 'eye-slash'} size={13} color={theme.subtext} />
+                              <FontAwesome5
+                                name={isVisible ? 'eye' : 'eye-slash'}
+                                size={13}
+                                color={theme.subtext}
+                              />
                             </Pressable>
                           </View>
                         </Pressable>
@@ -306,30 +519,19 @@ export default function Settings() {
                     })
                   )}
                 </View>
-
               </View>
             )}
 
-            {/* SECTION SEPARATOR */}
             <View style={[styles.horizontalBar, { backgroundColor: theme.border }]} />
 
-            {/* SECTION 2: QUIZ GENERATION SETTINGS */}
-            <Pressable
-              style={styles.accordionHeader}
-              onPress={() => setQuizExpanded(!quizExpanded)}
-            >
+            {/* SECTION 2: QUIZ SETTINGS */}
+            <Pressable style={styles.accordionHeader} onPress={() => setQuizExpanded(!quizExpanded)}>
               <Text style={[styles.sectionTitle, { color: theme.accent }]}>Quiz Settings</Text>
-              <FontAwesome5
-                name={quizExpanded ? 'chevron-up' : 'chevron-down'}
-                size={12}
-                color={theme.accent}
-              />
+              <FontAwesome5 name={quizExpanded ? 'chevron-up' : 'chevron-down'} size={12} color={theme.accent} />
             </Pressable>
 
             {quizExpanded && (
               <View style={styles.configCard}>
-
-                {/* QUESTION COUNT */}
                 <View style={styles.settingRow}>
                   <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Number of Questions</Text>
                   <View style={styles.buttonOptionRow}>
@@ -340,7 +542,7 @@ export default function Settings() {
                           styles.normalOptionBtn,
                           styles.flexButton,
                           { borderColor: theme.border },
-                          qCount === num && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                          qCount === num && { backgroundColor: theme.buttons, borderColor: theme.accent },
                         ]}
                         onPress={() => setQCount(num)}
                       >
@@ -352,7 +554,6 @@ export default function Settings() {
                   </View>
                 </View>
 
-                {/* QUESTION TYPE */}
                 <View style={styles.settingRow}>
                   <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>Question Type</Text>
                   <View style={styles.gridContainer}>
@@ -362,11 +563,13 @@ export default function Settings() {
                           styles.normalOptionBtn,
                           styles.flexButton,
                           { borderColor: theme.border },
-                          qStyle === 'MCQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                          qStyle === 'MCQ' && { backgroundColor: theme.buttons, borderColor: theme.accent },
                         ]}
                         onPress={() => setQStyle('MCQ')}
                       >
-                        <Text style={[styles.normalOptionText, { color: qStyle === 'MCQ' ? '#fff' : theme.title }]}>MCQ</Text>
+                        <Text style={[styles.normalOptionText, { color: qStyle === 'MCQ' ? '#fff' : theme.title }]}>
+                          MCQ
+                        </Text>
                       </Pressable>
 
                       <Pressable
@@ -374,11 +577,13 @@ export default function Settings() {
                           styles.normalOptionBtn,
                           styles.flexButton,
                           { borderColor: theme.border },
-                          qStyle === 'TF' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                          qStyle === 'TF' && { backgroundColor: theme.buttons, borderColor: theme.accent },
                         ]}
                         onPress={() => setQStyle('TF')}
                       >
-                        <Text style={[styles.normalOptionText, { color: qStyle === 'TF' ? '#fff' : theme.title }]}>True / False</Text>
+                        <Text style={[styles.normalOptionText, { color: qStyle === 'TF' ? '#fff' : theme.title }]}>
+                          True / False
+                        </Text>
                       </Pressable>
                     </View>
 
@@ -388,11 +593,13 @@ export default function Settings() {
                           styles.normalOptionBtn,
                           styles.flexButton,
                           { borderColor: theme.border },
-                          qStyle === 'SA' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                          qStyle === 'SA' && { backgroundColor: theme.buttons, borderColor: theme.accent },
                         ]}
                         onPress={() => setQStyle('SA')}
                       >
-                        <Text style={[styles.normalOptionText, { color: qStyle === 'SA' ? '#fff' : theme.title }]}>Short Answer</Text>
+                        <Text style={[styles.normalOptionText, { color: qStyle === 'SA' ? '#fff' : theme.title }]}>
+                          Short Answer
+                        </Text>
                       </Pressable>
 
                       <Pressable
@@ -400,23 +607,27 @@ export default function Settings() {
                           styles.normalOptionBtn,
                           styles.flexButton,
                           { borderColor: theme.border },
-                          qStyle === 'SEQ' && { backgroundColor: theme.buttons, borderColor: theme.accent }
+                          qStyle === 'SEQ' && { backgroundColor: theme.buttons, borderColor: theme.accent },
                         ]}
                         onPress={() => setQStyle('SEQ')}
                       >
-                        <Text style={[styles.normalOptionText, { color: qStyle === 'SEQ' ? '#fff' : theme.title }]}>Structured</Text>
+                        <Text style={[styles.normalOptionText, { color: qStyle === 'SEQ' ? '#fff' : theme.title }]}>
+                          Structured
+                        </Text>
                       </Pressable>
                     </View>
                   </View>
                 </View>
 
-                {/* CUSTOM PROMPT */}
                 <View style={styles.settingRow}>
                   <Text style={[styles.inputLabel, { color: theme.title, marginBottom: 8 }]}>
                     Custom Generation Instructions
                   </Text>
                   <TextInput
-                    style={[styles.textArea, { color: theme.title, borderColor: theme.border, backgroundColor: theme.background }]}
+                    style={[
+                      styles.textArea,
+                      { color: theme.title, borderColor: theme.border, backgroundColor: theme.background },
+                    ]}
                     placeholder="e.g., Focus heavily on clinical diagnostics..."
                     placeholderTextColor={theme.subtext}
                     value={customPrompt}
@@ -427,11 +638,15 @@ export default function Settings() {
                   />
                 </View>
 
-                {/* SAVE BUTTON */}
                 <Pressable
                   style={[
                     styles.saveBtn,
-                    { backgroundColor: theme.buttons, opacity: isSaving ? 0.7 : 1, borderColor: theme.accent, borderWidth: 1 }
+                    {
+                      backgroundColor: theme.buttons,
+                      opacity: isSaving ? 0.7 : 1,
+                      borderColor: theme.accent,
+                      borderWidth: 1,
+                    },
                   ]}
                   onPress={handleSaveSettings}
                   disabled={isSaving}
@@ -445,10 +660,72 @@ export default function Settings() {
                     </>
                   )}
                 </Pressable>
-
               </View>
             )}
 
+            <View style={[styles.horizontalBar, { backgroundColor: theme.border }]} />
+
+            {/* SECTION 3: BACKUP & RESTORE DATA */}
+            <Pressable style={styles.accordionHeader} onPress={() => setDataExpanded(!dataExpanded)}>
+              <Text style={[styles.sectionTitle, { color: theme.accent }]}>Backup & Restore</Text>
+              <FontAwesome5 name={dataExpanded ? 'chevron-up' : 'chevron-down'} size={12} color={theme.accent} />
+            </Pressable>
+
+            {dataExpanded && (
+              <View style={styles.configCard}>
+                <View style={styles.buttonOptionRow}>
+                  {/* EXPORT BUTTON */}
+                  <Pressable
+                    style={[
+                      styles.saveBtn,
+                      styles.flexButton,
+                      {
+                        backgroundColor: theme.buttons,
+                        borderColor: theme.accent,
+                        borderWidth: 1,
+                        opacity: isExporting ? 0.7 : 1,
+                      },
+                    ]}
+                    onPress={handleExportData}
+                    disabled={isExporting}
+                  >
+                    {isExporting ? (
+                      <ActivityIndicator size="small" color={theme.accent} />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="folder-plus" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                        <Text style={[styles.saveBtnText, { color: theme.accent }]}>Export</Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  {/* IMPORT BUTTON */}
+                  <Pressable
+                    style={[
+                      styles.saveBtn,
+                      styles.flexButton,
+                      {
+                        backgroundColor: theme.buttons,
+                        borderColor: theme.accent,
+                        borderWidth: 1,
+                        opacity: isImporting ? 0.7 : 1,
+                      },
+                    ]}
+                    onPress={handleImportData}
+                    disabled={isImporting}
+                  >
+                    {isImporting ? (
+                      <ActivityIndicator size="small" color={theme.accent} />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="folder-open" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                        <Text style={[styles.saveBtnText, { color: theme.accent }]}>Import</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -499,7 +776,10 @@ export default function Settings() {
               </Pressable>
 
               <Pressable
-                style={[styles.modalActionBtn, { backgroundColor: theme.buttons, borderColor: theme.accent, borderWidth: 1, flex: 1 }]}
+                style={[
+                  styles.modalActionBtn,
+                  { backgroundColor: theme.buttons, borderColor: theme.accent, borderWidth: 1, flex: 1 },
+                ]}
                 onPress={handleAddKey}
               >
                 <Text style={[styles.modalActionBtnText, { color: theme.accent }]}>Save Key</Text>
@@ -510,12 +790,7 @@ export default function Settings() {
       </Modal>
 
       {/* ALERT MODAL */}
-      <Modal
-        animationType="fade"
-        transparent
-        visible={alertVisible}
-        onRequestClose={() => setAlertVisible(false)}
-      >
+      <Modal animationType="fade" transparent visible={alertVisible} onRequestClose={() => setAlertVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: theme.background, borderColor: theme.border }]}>
             <View style={styles.modalHeaderRow}>
