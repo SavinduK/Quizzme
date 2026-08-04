@@ -2,13 +2,13 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+import * as Print from 'expo-print';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 import Footer from './components/footer';
 import QuizCard from './components/quiz-card';
 import QuizResults from './components/quiz-results';
@@ -79,7 +80,7 @@ interface CompletedRecord {
   maxPossibleScore: number;
   percentage: number;
   completedAt: string;
-  questionType: string; // Adds question format tracking
+  questionType: string;
 }
 
 interface PerformanceConfig {
@@ -112,7 +113,7 @@ const saveScoreToConfigJson = async (
       maxPossibleScore,
       percentage,
       completedAt: new Date().toISOString(),
-      questionType, // Persisted into config.json
+      questionType,
     };
 
     const targetCategory: any = type === 'past_paper' ? currentConfig.pastPapers : currentConfig.quizzes;
@@ -129,32 +130,48 @@ const saveScoreToConfigJson = async (
   }
 };
 
-/* ---------------- Auto-Scaling Handwritten Image Component ---------------- */
-function ScaledHandwrittenImage({ uri, onDelete, theme }: { uri: string; onDelete: () => void; theme: any }) {
-  const [aspectRatio, setAspectRatio] = useState<number>(1);
-
-  useEffect(() => {
-    Image.getSize(
-      uri,
-      (width, height) => {
-        if (width && height) {
-          setAspectRatio(width / height);
-        }
-      },
-      (error) => console.warn('Could not scale image:', error)
-    );
-  }, [uri]);
+/* ---------------- Render Full Screen HTML Component ---------------- */
+function RenderedHtmlNote({ htmlContent, theme }: { htmlContent: string; theme: any }) {
+  const wrappedHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            padding: 16px;
+            margin: 0;
+            background-color: transparent;
+            color: ${theme.text ?? '#000000'};
+            word-wrap: break-word;
+          }
+          img, table {
+            max-width: 100%;
+            height: auto;
+          }
+          hr {
+            border: 0;
+            height: 1px;
+            background: ${theme.border ?? '#ccc'};
+            margin: 20px 0;
+          }
+        </style>
+      </head>
+      <body>
+        ${htmlContent}
+      </body>
+    </html>
+  `;
 
   return (
-    <View style={[styles.handwrittenCard, { borderColor: theme.border, backgroundColor: theme.card ?? theme.buttons }]}>
-      <Image
-        source={{ uri }}
-        style={[styles.handwrittenImage, { aspectRatio }]}
-        resizeMode="contain"
+    <View style={styles.fullScreenWebViewContainer}>
+      <WebView
+        originWhitelist={['*']}
+        source={{ html: wrappedHtml }}
+        style={{ flex: 1, backgroundColor: 'transparent' }}
+        scrollEnabled={true}
       />
-      <TouchableOpacity style={styles.deleteNoteBtn} onPress={onDelete}>
-        <FontAwesome5 name="trash-alt" size={14} color="#FF453A" />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -214,9 +231,12 @@ export default function LessonReaderScreen() {
   const [readingContent, setReadingContent] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'notes' | 'quiz' | 'summary' | 'past_paper' | 'handwritten'>(params.initialTab || 'notes');
 
-  // Handwritten Image Notes State
-  const [handwrittenImages, setHandwrittenImages] = useState<string[]>([]);
+  // Handwritten Single HTML Document State
+  const [combinedHtml, setCombinedHtml] = useState<string>('');
+  const [previousHtmlState, setPreviousHtmlState] = useState<string | null>(null);
   const [loadingHandwritten, setLoadingHandwritten] = useState<boolean>(false);
+  const [isConvertingImage, setIsConvertingImage] = useState<boolean>(false);
+  const [showHandwrittenMenu, setShowHandwrittenMenu] = useState<boolean>(false);
 
   // Summary State
   const [summaryContent, setSummaryContent] = useState<string>('');
@@ -287,23 +307,24 @@ export default function LessonReaderScreen() {
     }
   }, [params.initialTab]);
 
-  /* ---------------- Handwritten Notes Logic (With Crop Support) ---------------- */
-  const getLessonNotesDir = () => {
+  /* ---------------- Handwritten HTML Notes Logic ---------------- */
+  const getHandwrittenFilePath = () => {
     if (!params.filename) return '';
     const cleanName = params.filename.replace(/\.[^/.]+$/, "");
-    return `${HANDWRITTEN_DIR}${cleanName}/`;
+    return `${HANDWRITTEN_DIR}${cleanName}/note.html`;
   };
 
   const loadHandwrittenNotes = async () => {
     if (!params.filename) return;
     try {
       setLoadingHandwritten(true);
-      const lessonNotesFolder = getLessonNotesDir();
-      const folderInfo = await FileSystem.getInfoAsync(lessonNotesFolder);
-      if (folderInfo.exists) {
-        const files = await FileSystem.readDirectoryAsync(lessonNotesFolder);
-        const imageUris = files.map(file => `${lessonNotesFolder}${file}`);
-        setHandwrittenImages(imageUris.reverse());
+      const filePath = getHandwrittenFilePath();
+      const fileInfo = await FileSystem.getInfoAsync(filePath);
+      if (fileInfo.exists) {
+        const content = await FileSystem.readAsStringAsync(filePath);
+        setCombinedHtml(content);
+      } else {
+        setCombinedHtml('');
       }
     } catch (e) {
       console.warn("Could not load handwritten notes:", e);
@@ -312,26 +333,75 @@ export default function LessonReaderScreen() {
     }
   };
 
-  const savePickedImage = async (uri: string) => {
+  const processAndSaveImageToHtml = async (imageUri: string) => {
+    setIsConvertingImage(true);
     try {
-      const lessonNotesFolder = getLessonNotesDir();
-      const folderInfo = await FileSystem.getInfoAsync(lessonNotesFolder);
-      if (!folderInfo.exists) {
-        await FileSystem.makeDirectoryAsync(lessonNotesFolder, { intermediates: true });
+      const base64Image = await FileSystem.readAsStringAsync(imageUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const { activeApiKey, selectedModel } = await fetchApiKeyConfig();
+
+      const prompt = `Convert the text and diagrams in this handwritten note into responsive, clean HTML text. Use semantic elements like <h1>, <p>, <ul>, <li>, and <table> where appropriate. Return ONLY valid, clean HTML body markup without markdown code fences (\`\`\`html or \`\`\`). Do not wrap in <html> or <body> tags.`;
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${activeApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: "image/jpeg",
+                      data: base64Image,
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        }
+      );
+
+      const resData = await response.json();
+      let extractedHtml = resData.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!extractedHtml) {
+        throw new Error("Gemini returned an empty HTML response.");
       }
 
-      const fileName = `note_${Date.now()}.jpg`;
-      const targetPath = `${lessonNotesFolder}${fileName}`;
-      await FileSystem.copyAsync({ from: uri, to: targetPath });
+      // Clean out markdown code blocks if returned
+      extractedHtml = extractedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
 
-      setHandwrittenImages(prev => [targetPath, ...prev]);
+      const filePath = getHandwrittenFilePath();
+      const folderPath = filePath.substring(0, filePath.lastIndexOf('/'));
+      const folderInfo = await FileSystem.getInfoAsync(folderPath);
+      if (!folderInfo.exists) {
+        await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
+      }
+
+      setPreviousHtmlState(combinedHtml);
+
+      const newCombinedHtml = combinedHtml
+        ? `${combinedHtml}\n<hr />\n${extractedHtml}`
+        : extractedHtml;
+
+      await FileSystem.writeAsStringAsync(filePath, newCombinedHtml);
+      setCombinedHtml(newCombinedHtml);
     } catch (e) {
       console.error(e);
-      Alert.alert("Error", "Could not save photo note.");
+      Alert.alert("Error", "Could not convert handwritten photo note to HTML text.");
+    } finally {
+      setIsConvertingImage(false);
     }
   };
 
   const handleTakePhoto = async () => {
+    setShowHandwrittenMenu(false);
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert("Permission required", "Camera permission is required to take photo notes.");
@@ -340,16 +410,17 @@ export default function LessonReaderScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true, // Enables Cropping UI
+      allowsEditing: true,
       quality: 0.8,
     });
 
     if (!result.canceled && result.assets[0]?.uri) {
-      await savePickedImage(result.assets[0].uri);
+      await processAndSaveImageToHtml(result.assets[0].uri);
     }
   };
 
   const handlePickGalleryImage = async () => {
+    setShowHandwrittenMenu(false);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert("Permission required", "Gallery permission is required to import notes.");
@@ -358,27 +429,48 @@ export default function LessonReaderScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true, // Enables Cropping UI
+      allowsEditing: true,
       quality: 0.8,
     });
 
     if (!result.canceled && result.assets[0]?.uri) {
-      await savePickedImage(result.assets[0].uri);
+      await processAndSaveImageToHtml(result.assets[0].uri);
     }
   };
 
-  const handleDeleteHandwrittenNote = async (imageUri: string) => {
-    Alert.alert("Delete Note", "Are you sure you want to delete this handwritten note?", [
+  const handleUndoLastUpload = async () => {
+    setShowHandwrittenMenu(false);
+    if (previousHtmlState === null) {
+      Alert.alert("Undo Unavailable", "No recent photo addition available to undo.");
+      return;
+    }
+
+    try {
+      const filePath = getHandwrittenFilePath();
+      await FileSystem.writeAsStringAsync(filePath, previousHtmlState);
+      setCombinedHtml(previousHtmlState);
+      setPreviousHtmlState(null);
+      Alert.alert("Undone", "Reverted changes from the last photo upload.");
+    } catch (e) {
+      Alert.alert("Error", "Failed to undo last upload.");
+    }
+  };
+
+  const handleDeleteAllHandwrittenNotes = async () => {
+    setShowHandwrittenMenu(false);
+    Alert.alert("Delete All Notes", "Are you sure you want to delete this handwritten HTML document?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
           try {
-            await FileSystem.deleteAsync(imageUri, { idempotent: true });
-            setHandwrittenImages(prev => prev.filter(img => img !== imageUri));
+            const filePath = getHandwrittenFilePath();
+            await FileSystem.deleteAsync(filePath, { idempotent: true });
+            setCombinedHtml('');
+            setPreviousHtmlState(null);
           } catch (e) {
-            Alert.alert("Error", "Failed to delete handwritten image note.");
+            Alert.alert("Error", "Failed to delete handwritten HTML note.");
           }
         },
       },
@@ -425,25 +517,110 @@ export default function LessonReaderScreen() {
     }
   };
 
-  const shareAsMarkdown = async () => {
-    const isAvailable = await Sharing.isAvailableAsync();
-    if (!isAvailable) {
-      alert("Sharing isn't available on this device");
-      return;
-    }
-    const targetStr = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${params.filename}`);
-    const baseName = params.filename.substring(0, params.filename.lastIndexOf('.')) || params.filename;
-    const tempMdPath = `${FileSystem.cacheDirectory}${baseName}.md`;
+ const shareNote = async () => {
+  const isAvailable = await Sharing.isAvailableAsync();
+  if (!isAvailable) {
+    Alert.alert("Sharing Unavailable", "Sharing isn't available on this device.");
+    return;
+  }
 
-    await FileSystem.writeAsStringAsync(tempMdPath, targetStr, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-    await Sharing.shareAsync(tempMdPath, {
-      mimeType: 'text/markdown',
-      dialogTitle: `Share ${baseName}.md`,
-      UTI: 'net.daringfireball.markdown',
-    });
-  };
+  try {
+    if (!params.filename) return;
+
+    // Get the base filename without extension
+    const baseName = params.filename.substring(0, params.filename.lastIndexOf('.')) || params.filename;
+
+    if (activeTab === 'handwritten') {
+      // 1. Check if handwritten HTML notes exist
+      if (!combinedHtml) {
+        Alert.alert("Nothing to Share", "No handwritten HTML notes exist for this lesson yet.");
+        return;
+      }
+
+      // Wrap HTML content in full document markup with printable CSS
+      const fullHtmlDocument = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>${baseName}</title>
+            <style>
+              @page {
+                margin: 20mm;
+              }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                color: #111111;
+                line-height: 1.6;
+                padding: 10px;
+              }
+              h1, h2, h3, h4 {
+                color: #000000;
+                margin-top: 1.2em;
+                margin-bottom: 0.5em;
+              }
+              img, table {
+                max-width: 100%;
+                height: auto;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 15px 0;
+              }
+              th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+              }
+              hr {
+                border: 0;
+                height: 1px;
+                background: #ccc;
+                margin: 25px 0;
+                page-break-after: always; /* Breaks page per note section if desired */
+              }
+            </style>
+          </head>
+          <body>
+            ${combinedHtml}
+          </body>
+        </html>
+      `;
+
+      // 2. Convert HTML to PDF URI using expo-print
+      const { uri: pdfUri } = await Print.printToFileAsync({
+        html: fullHtmlDocument,
+      });
+
+      // 3. Share generated PDF
+      await Sharing.shareAsync(pdfUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: `Share ${baseName}.pdf`,
+        UTI: 'com.adobe.pdf',
+      });
+
+    } else {
+      // Sharing Standard Markdown Notes
+      const targetStr = await FileSystem.readAsStringAsync(`${QUESTIONS_DIR}${params.filename}`);
+      const tempMdPath = `${FileSystem.cacheDirectory}${baseName}.md`;
+
+      await FileSystem.writeAsStringAsync(tempMdPath, targetStr, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      await Sharing.shareAsync(tempMdPath, {
+        mimeType: 'text/markdown',
+        dialogTitle: `Share ${baseName}.md`,
+        UTI: 'net.daringfireball.markdown',
+      });
+    }
+  } catch (e) {
+    console.error("Error generating/sharing PDF:", e);
+    Alert.alert("Share Failed", "Could not convert or export PDF file.");
+  }
+};
 
   const resetQuestionStates = () => {
     setChosenAnswer(null);
@@ -794,27 +971,27 @@ Extract and return a JSON object with a single key "questions" containing an arr
     : 0;
 
   const handleNextQuestion = async () => {
-  const currentActiveDeck = activeTab === 'past_paper' ? pastPaperDeck : activeDeck;
-  if (!currentActiveDeck) return;
+    const currentActiveDeck = activeTab === 'past_paper' ? pastPaperDeck : activeDeck;
+    if (!currentActiveDeck) return;
 
-  if (currentQuestionIdx + 1 < currentActiveDeck.length) {
-    setCurrentQuestionIdx(p => p + 1);
-    resetQuestionStates();
-  } else {
-    setQuizFinished(true);
-    if (params.lesson) {
-      // Determine question type based on state flags
-      const questionType = isTFQuiz ? 'tf' : isSEQQuiz ? 'seq' : isSAQuiz ? 'sa' : 'mcq';
-      await saveScoreToConfigJson(
-        params.lesson,
-        activeTab === 'past_paper' ? 'past_paper' : 'quiz',
-        runningScore,
-        maxPossibleScore,
-        questionType
-      );
+    if (currentQuestionIdx + 1 < currentActiveDeck.length) {
+      setCurrentQuestionIdx(p => p + 1);
+      resetQuestionStates();
+    } else {
+      setQuizFinished(true);
+      if (params.lesson) {
+        const questionType = isTFQuiz ? 'tf' : isSEQQuiz ? 'seq' : isSAQuiz ? 'sa' : 'mcq';
+        await saveScoreToConfigJson(
+          params.lesson,
+          activeTab === 'past_paper' ? 'past_paper' : 'quiz',
+          runningScore,
+          maxPossibleScore,
+          questionType
+        );
+      }
     }
-  }
-};
+  };
+
   const evaluateTfQuestion = () => {
     const currentActiveDeck = activeTab === 'past_paper' ? pastPaperDeck : activeDeck;
     if (!currentActiveDeck) return;
@@ -899,7 +1076,7 @@ Extract and return a JSON object with a single key "questions" containing an arr
             <FontAwesome5 name="copy" size={16} color={theme.accent} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.iconShareBtn]} onPress={shareAsMarkdown}>
+          <TouchableOpacity style={[styles.iconShareBtn]} onPress={shareNote}>
             <FontAwesome5 name="share-alt" size={16} color={theme.accent} />
           </TouchableOpacity>
         </View>
@@ -951,283 +1128,296 @@ Extract and return a JSON object with a single key "questions" containing an arr
       </ScrollView>
 
       {/* Dynamic Tab Body */}
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        {activeTab === 'notes' && (
-          <Markdown
-            style={{
-              body: { color: theme.text, fontSize: 15, lineHeight: 24 },
-              heading1: { color: theme.text, fontWeight: '700', marginVertical: 10 },
-              heading2: { color: theme.text, fontWeight: '600', marginVertical: 8 },
-              paragraph: { marginVertical: 6 },
-              link: { color: theme.accent },
-              bullet_list: { color: theme.text },
-              ordered_list: { color: theme.text },
-            }}
-          >
-            {readingContent}
-          </Markdown>
-        )}
-
-        {/* Handwritten Image Notes View Component */}
-        {activeTab === 'handwritten' && (
-          <View style={styles.handwrittenContainer}>
-            <Text style={[styles.pastPaperTitleText, { color: theme.text, marginBottom: 12 }]}>
+      {activeTab === 'handwritten' ? (
+        <View style={{ flex: 1, paddingHorizontal: 20 }}>
+          <View style={styles.pastPaperHeaderRow}>
+            <Text style={[styles.pastPaperTitleText, { color: theme.text }]}>
               Handwritten Notes
             </Text>
 
-            {/* Action Buttons to Take/Pick Photo */}
-            <View style={styles.handwrittenBtnRow}>
+            <View style={{ position: 'relative', zIndex: 10 }}>
               <TouchableOpacity
-                style={[styles.handwrittenActionBtn, { backgroundColor: theme.accent }]}
-                onPress={handleTakePhoto}
+                style={styles.menuIconBtn}
+                onPress={() => setShowHandwrittenMenu(!showHandwrittenMenu)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <FontAwesome5 name="camera" size={14} color="#FFF" style={{ marginRight: 6 }} />
-                <Text style={styles.btnText}>Take Photo</Text>
+                <FontAwesome5 name="ellipsis-v" size={16} color={theme.text} />
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.handwrittenActionBtn, { backgroundColor: theme.buttons, borderWidth: 1, borderColor: theme.border }]}
-                onPress={handlePickGalleryImage}
-              >
-                <FontAwesome5 name="image" size={14} color={theme.text} style={{ marginRight: 6 }} />
-                <Text style={[styles.btnText, { color: theme.text }]}>Import Photo</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Scroll View displaying dynamically scaled images */}
-            {loadingHandwritten ? (
-              <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 20 }} />
-            ) : handwrittenImages.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <FontAwesome5 name="file-image" size={40} color={theme.subtext} />
-                <Text style={{ color: theme.subtext, marginTop: 12, textAlign: 'center' }}>
-                  No handwritten photo notes attached yet. Take or import a photo to keep notes attached to this lesson.
-                </Text>
-              </View>
-            ) : (
-              <ScrollView style={{ width: '100%' }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                {handwrittenImages.map((uri, idx) => (
-                  <ScaledHandwrittenImage
-                    key={idx}
-                    uri={uri}
-                    theme={theme}
-                    onDelete={() => handleDeleteHandwrittenNote(uri)}
-                  />
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
-
-        {activeTab === 'quiz' && (
-          <View>
-            {loadingQuiz && (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={theme.accent} />
-                <Text style={{ color: theme.subtext, marginTop: 12, fontWeight: '500' }}>
-                  Compiling Questions & Answer Keys...
-                </Text>
-              </View>
-            )}
-
-            {!loadingQuiz && activeDeck && (
-              <View>
-                {quizFinished ? (
-                  <QuizResults
-                    runningScore={runningScore}
-                    maxPossibleScore={maxPossibleScore}
-                    onReturn={() => launchDeck()}
-                  />
-                ) : (
-                  <QuizCard
-                    item={activeDeck[currentQuestionIdx]}
-                    chosenAnswer={chosenAnswer}
-                    runningScore={runningScore}
-                    maxPossibleScore={maxPossibleScore}
-                    setChosenAnswer={setChosenAnswer}
-                    setRunningScore={setRunningScore}
-                    tfSelections={tfSelections}
-                    setTfSelections={setTfSelections}
-                    tfChecked={tfChecked}
-                    tfQuestionScore={tfQuestionScore}
-                    evaluateTfQuestion={evaluateTfQuestion}
-                    handleNextQuestion={handleNextQuestion}
-                    currentQuestionIdx={currentQuestionIdx}
-                    totalQuestions={activeDeck.length}
-                    isSAQuiz={isSAQuiz}
-                    saInputText={saInputText}
-                    setSaInputText={setSaInputText}
-                    saChecked={saChecked}
-                    setSaChecked={setSaChecked}
-                    isSEQQuiz={isSEQQuiz}
-                    showSeqAnswer={showSeqAnswer}
-                    setShowSeqAnswer={setShowSeqAnswer}
-                    seqUserNotes={seqUserNotes}
-                    setSeqUserNotes={setSeqUserNotes}
-                  />
-                )}
-              </View>
-            )}
-          </View>
-        )}
-
-        {activeTab === 'summary' && (
-          <View style={styles.cardsContainer}>
-            {loadingSummary ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={theme.accent} />
-                <Text style={{ color: theme.subtext, marginTop: 12, fontWeight: '500' }}>
-                  {summaryStatus}
-                </Text>
-              </View>
-            ) : (
-              parseMarkdownToCards(summaryContent).map((block) => (
-                <View 
-                  key={block.id} 
-                  style={[
-                    styles.card, 
-                    { 
-                      backgroundColor: theme.card ?? theme.buttons ?? '#1E1E1E',
-                      borderColor: theme.border, 
-                    }
-                  ]}
-                >
-                  <View style={styles.cardHeader}>
-                    <Text style={[styles.cardTitle, { color: theme.accent }]}>
-                      {block.title}
-                    </Text>
-                  </View>
-
-                  <Markdown
-                    style={{
-                      body: { color: theme.text, fontSize: 15, lineHeight: 24 },
-                      strong: { fontWeight: '700', color: theme.text },
-                      paragraph: { marginVertical: 4 },
-                      link: { color: theme.accent },
-                    }}
-                  >
-                    {block.content}
-                  </Markdown>
-                </View>
-              ))
-            )}
-          </View>
-        )}
-
-        {activeTab === 'past_paper' && (
-          <View>
-            <View style={styles.pastPaperHeaderRow}>
-              <Text style={[styles.pastPaperTitleText, { color: theme.text }]}>
-                Past Paper Questions
-              </Text>
-              
-              {pastPaperDeck && pastPaperDeck.length > 0 && (
-                <View style={{ position: 'relative', zIndex: 10 }}>
-                  <TouchableOpacity
-                    style={styles.menuIconBtn}
-                    onPress={() => setShowPastPaperMenu(!showPastPaperMenu)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <FontAwesome5 name="ellipsis-v" size={16} color={theme.text} />
+              {showHandwrittenMenu && (
+                <View style={[styles.dropdownMenu, { backgroundColor: theme.card ?? theme.buttons, borderColor: theme.border }]}>
+                  <TouchableOpacity style={styles.dropdownMenuItem} onPress={handleTakePhoto} disabled={isConvertingImage}>
+                    <FontAwesome5 name="camera" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                    <Text style={[styles.dropdownMenuText, { color: theme.text }]}>Take Photo</Text>
                   </TouchableOpacity>
 
-                  {showPastPaperMenu && (
-                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card ?? theme.buttons, borderColor: theme.border }]}>
-                      <TouchableOpacity
-                        style={styles.dropdownMenuItem}
-                        onPress={() => {
-                          setShowPastPaperMenu(false);
-                          setShowDeleteConfirmModal(true);
-                        }}
-                      >
-                        <FontAwesome5 name="trash-alt" size={14} color="#FF453A" style={{ marginRight: 8 }} />
-                        <Text style={[styles.dropdownMenuText, { color: "#FF453A" }]}>Delete Past Paper</Text>
-                      </TouchableOpacity>
-                    </View>
+                  <TouchableOpacity style={styles.dropdownMenuItem} onPress={handlePickGalleryImage} disabled={isConvertingImage}>
+                    <FontAwesome5 name="image" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                    <Text style={[styles.dropdownMenuText, { color: theme.text }]}>Import Photo</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.dropdownMenuItem} onPress={handleUndoLastUpload} disabled={isConvertingImage}>
+                    <FontAwesome5 name="undo" size={14} color={theme.accent} style={{ marginRight: 8 }} />
+                    <Text style={[styles.dropdownMenuText, { color: theme.text }]}>Undo</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.dropdownMenuItem} onPress={handleDeleteAllHandwrittenNotes} disabled={isConvertingImage}>
+                    <FontAwesome5 name="trash-alt" size={14} color="#FF453A" style={{ marginRight: 8 }} />
+                    <Text style={[styles.dropdownMenuText, { color: "#FF453A" }]}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {isConvertingImage && (
+            <View style={{ alignItems: 'center', marginVertical: 12 }}>
+              <ActivityIndicator size="large" color={theme.accent} />
+              <Text style={{ color: theme.subtext, marginTop: 8 }}>Converting photo to HTML document...</Text>
+            </View>
+          )}
+
+          {loadingHandwritten ? (
+            <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 20 }} />
+          ) : !combinedHtml ? (
+            <View style={styles.emptyContainer}>
+              <FontAwesome5 name="file-code" size={40} color={theme.subtext} />
+              <Text style={{ color: theme.subtext, marginTop: 12, textAlign: 'center' }}>
+                No handwritten HTML notes attached yet. Use the 3-dot header menu to take or import a photo into this document.
+              </Text>
+            </View>
+          ) : (
+            <RenderedHtmlNote htmlContent={combinedHtml} theme={theme} />
+          )}
+        </View>
+      ) : (
+        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+          {activeTab === 'notes' && (
+            <Markdown
+              style={{
+                body: { color: theme.text, fontSize: 15, lineHeight: 24 },
+                heading1: { color: theme.text, fontWeight: '700', marginVertical: 10 },
+                heading2: { color: theme.text, fontWeight: '600', marginVertical: 8 },
+                paragraph: { marginVertical: 6 },
+                link: { color: theme.accent },
+                bullet_list: { color: theme.text },
+                ordered_list: { color: theme.text },
+              }}
+            >
+              {readingContent}
+            </Markdown>
+          )}
+
+          {activeTab === 'quiz' && (
+            <View>
+              {loadingQuiz && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={theme.accent} />
+                  <Text style={{ color: theme.subtext, marginTop: 12, fontWeight: '500' }}>
+                    Compiling Questions & Answer Keys...
+                  </Text>
+                </View>
+              )}
+
+              {!loadingQuiz && activeDeck && (
+                <View>
+                  {quizFinished ? (
+                    <QuizResults
+                      runningScore={runningScore}
+                      maxPossibleScore={maxPossibleScore}
+                      onReturn={() => launchDeck()}
+                    />
+                  ) : (
+                    <QuizCard
+                      item={activeDeck[currentQuestionIdx]}
+                      chosenAnswer={chosenAnswer}
+                      runningScore={runningScore}
+                      maxPossibleScore={maxPossibleScore}
+                      setChosenAnswer={setChosenAnswer}
+                      setRunningScore={setRunningScore}
+                      tfSelections={tfSelections}
+                      setTfSelections={setTfSelections}
+                      tfChecked={tfChecked}
+                      tfQuestionScore={tfQuestionScore}
+                      evaluateTfQuestion={evaluateTfQuestion}
+                      handleNextQuestion={handleNextQuestion}
+                      currentQuestionIdx={currentQuestionIdx}
+                      totalQuestions={activeDeck.length}
+                      isSAQuiz={isSAQuiz}
+                      saInputText={saInputText}
+                      setSaInputText={setSaInputText}
+                      saChecked={saChecked}
+                      setSaChecked={setSaChecked}
+                      isSEQQuiz={isSEQQuiz}
+                      showSeqAnswer={showSeqAnswer}
+                      setShowSeqAnswer={setShowSeqAnswer}
+                      seqUserNotes={seqUserNotes}
+                      setSeqUserNotes={setSeqUserNotes}
+                    />
                   )}
                 </View>
               )}
             </View>
+          )}
 
-            {!pastPaperDeck || pastPaperDeck.length === 0 ? (
-              <View style={styles.pastPaperInputContainer}>
-                <TextInput
-                  style={[styles.pastPaperInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.buttons }]}
-                  multiline
-                  numberOfLines={10}
-                  placeholder="Paste JSON or plain text here..."
-                  placeholderTextColor={theme.subtext}
-                  value={pastPaperInputText}
-                  onChangeText={setPastPaperInputText}
-                  textAlignVertical="top"
-                />
+          {activeTab === 'summary' && (
+            <View style={styles.cardsContainer}>
+              {loadingSummary ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={theme.accent} />
+                  <Text style={{ color: theme.subtext, marginTop: 12, fontWeight: '500' }}>
+                    {summaryStatus}
+                  </Text>
+                </View>
+              ) : (
+                parseMarkdownToCards(summaryContent).map((block) => (
+                  <View 
+                    key={block.id} 
+                    style={[
+                      styles.card, 
+                      { 
+                        backgroundColor: theme.card ?? theme.buttons ?? '#1E1E1E',
+                        borderColor: theme.border, 
+                      }
+                    ]}
+                  >
+                    <View style={styles.cardHeader}>
+                      <Text style={[styles.cardTitle, { color: theme.accent }]}>
+                        {block.title}
+                      </Text>
+                    </View>
 
-                {isProcessingPastPaper ? (
-                  <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 20 }} />
-                ) : (
-                  <View style={styles.pastPaperBtnRow}>
-                    <TouchableOpacity
-                      style={[styles.pastPaperActionBtn, { backgroundColor: theme.accent }]}
-                      onPress={handleSaveDirectJson}
+                    <Markdown
+                      style={{
+                        body: { color: theme.text, fontSize: 15, lineHeight: 24 },
+                        strong: { fontWeight: '700', color: theme.text },
+                        paragraph: { marginVertical: 4 },
+                        link: { color: theme.accent },
+                      }}
                     >
-                      <Text style={styles.btnText}>Save JSON Directly</Text>
+                      {block.content}
+                    </Markdown>
+                  </View>
+                ))
+              )}
+            </View>
+          )}
+
+          {activeTab === 'past_paper' && (
+            <View>
+              <View style={styles.pastPaperHeaderRow}>
+                <Text style={[styles.pastPaperTitleText, { color: theme.text }]}>
+                  Past Paper Questions
+                </Text>
+                
+                {pastPaperDeck && pastPaperDeck.length > 0 && (
+                  <View style={{ position: 'relative', zIndex: 10 }}>
+                    <TouchableOpacity
+                      style={styles.menuIconBtn}
+                      onPress={() => setShowPastPaperMenu(!showPastPaperMenu)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <FontAwesome5 name="ellipsis-v" size={16} color={theme.text} />
                     </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={[styles.pastPaperActionBtn, { backgroundColor: theme.accent }]}
-                      onPress={handleConvertPlaintextWithGemini}
-                    >
-                      <Text style={styles.btnText}>Convert Plaintext via AI</Text>
-                    </TouchableOpacity>
+                    {showPastPaperMenu && (
+                      <View style={[styles.dropdownMenu, { backgroundColor: theme.card ?? theme.buttons, borderColor: theme.border }]}>
+                        <TouchableOpacity
+                          style={styles.dropdownMenuItem}
+                          onPress={() => {
+                            setShowPastPaperMenu(false);
+                            setShowDeleteConfirmModal(true);
+                          }}
+                        >
+                          <FontAwesome5 name="trash-alt" size={14} color="#FF453A" style={{ marginRight: 8 }} />
+                          <Text style={[styles.dropdownMenuText, { color: "#FF453A" }]}>Delete Past Paper</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 )}
               </View>
-            ) : (
-              <View>
-                {quizFinished ? (
-                  <QuizResults
-                    runningScore={runningScore}
-                    maxPossibleScore={maxPossibleScore}
-                    onReturn={() => {
-                      setCurrentQuestionIdx(0);
-                      setRunningScore(0);
-                      setQuizFinished(false);
-                      resetQuestionStates();
-                    }}
+
+              {!pastPaperDeck || pastPaperDeck.length === 0 ? (
+                <View style={styles.pastPaperInputContainer}>
+                  <TextInput
+                    style={[styles.pastPaperInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.buttons }]}
+                    multiline
+                    numberOfLines={10}
+                    placeholder="Paste JSON or plain text here..."
+                    placeholderTextColor={theme.subtext}
+                    value={pastPaperInputText}
+                    onChangeText={setPastPaperInputText}
+                    textAlignVertical="top"
                   />
-                ) : (
-                  <QuizCard
-                    item={pastPaperDeck[currentQuestionIdx]}
-                    chosenAnswer={chosenAnswer}
-                    runningScore={runningScore}
-                    maxPossibleScore={maxPossibleScore}
-                    setChosenAnswer={setChosenAnswer}
-                    setRunningScore={setRunningScore}
-                    tfSelections={tfSelections}
-                    setTfSelections={setTfSelections}
-                    tfChecked={tfChecked}
-                    tfQuestionScore={tfQuestionScore}
-                    evaluateTfQuestion={evaluateTfQuestion}
-                    handleNextQuestion={handleNextQuestion}
-                    currentQuestionIdx={currentQuestionIdx}
-                    totalQuestions={pastPaperDeck.length}
-                    isSAQuiz={isSAQuiz}
-                    saInputText={saInputText}
-                    setSaInputText={setSaInputText}
-                    saChecked={saChecked}
-                    setSaChecked={setSaChecked}
-                    isSEQQuiz={isSEQQuiz}
-                    showSeqAnswer={showSeqAnswer}
-                    setShowSeqAnswer={setShowSeqAnswer}
-                    seqUserNotes={seqUserNotes}
-                    setSeqUserNotes={setSeqUserNotes}
-                  />
-                )}
-              </View>
-            )}
-          </View>
-        )}
-      </ScrollView>
+
+                  {isProcessingPastPaper ? (
+                    <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 20 }} />
+                  ) : (
+                    <View style={styles.pastPaperBtnRow}>
+                      <TouchableOpacity
+                        style={[styles.pastPaperActionBtn, { backgroundColor: theme.accent }]}
+                        onPress={handleSaveDirectJson}
+                      >
+                        <Text style={styles.btnText}>Save JSON Directly</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.pastPaperActionBtn, { backgroundColor: theme.accent }]}
+                        onPress={handleConvertPlaintextWithGemini}
+                      >
+                        <Text style={styles.btnText}>Convert Plaintext via AI</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View>
+                  {quizFinished ? (
+                    <QuizResults
+                      runningScore={runningScore}
+                      maxPossibleScore={maxPossibleScore}
+                      onReturn={() => {
+                        setCurrentQuestionIdx(0);
+                        setRunningScore(0);
+                        setQuizFinished(false);
+                        resetQuestionStates();
+                      }}
+                    />
+                  ) : (
+                    <QuizCard
+                      item={pastPaperDeck[currentQuestionIdx]}
+                      chosenAnswer={chosenAnswer}
+                      runningScore={runningScore}
+                      maxPossibleScore={maxPossibleScore}
+                      setChosenAnswer={setChosenAnswer}
+                      setRunningScore={setRunningScore}
+                      tfSelections={tfSelections}
+                      setTfSelections={setTfSelections}
+                      tfChecked={tfChecked}
+                      tfQuestionScore={tfQuestionScore}
+                      evaluateTfQuestion={evaluateTfQuestion}
+                      handleNextQuestion={handleNextQuestion}
+                      currentQuestionIdx={currentQuestionIdx}
+                      totalQuestions={pastPaperDeck.length}
+                      isSAQuiz={isSAQuiz}
+                      saInputText={saInputText}
+                      setSaInputText={setSaInputText}
+                      saChecked={saChecked}
+                      setSaChecked={setSaChecked}
+                      isSEQQuiz={isSEQQuiz}
+                      showSeqAnswer={showSeqAnswer}
+                      setShowSeqAnswer={setShowSeqAnswer}
+                      seqUserNotes={seqUserNotes}
+                      setSeqUserNotes={setSeqUserNotes}
+                    />
+                  )}
+                </View>
+              )}
+            </View>
+          )}
+        </ScrollView>
+      )}
 
       {/* Floating Action Button (FAB) for Editing Notes */}
       {activeTab === 'notes' && (
@@ -1396,40 +1586,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  /* Handwritten Tab Styles */
-  handwrittenContainer: {
-    paddingVertical: 10,
-  },
-  handwrittenBtnRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  handwrittenActionBtn: {
+  /* Full screen Handwritten WebView */
+  fullScreenWebViewContainer: {
     flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  handwrittenCard: {
-    position: 'relative',
-    marginBottom: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  handwrittenImage: {
     width: '100%',
-  },
-  deleteNoteBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    padding: 8,
-    borderRadius: 20,
+    paddingBottom: 80,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -1527,7 +1688,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 15, fontWeight: '700', letterSpacing: 0.3, textTransform: 'capitalize' },
 
-  /* Past Paper Specific Styles */
+  /* Past Paper & Handwritten Menu Styles */
   pastPaperHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
