@@ -1,0 +1,8 @@
+{
+  "name": "QuizzMe",
+  "description": "AI-powered study notes, past papers, flashcards/quizzes, and daily study tracker.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
