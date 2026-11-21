@@ -31,7 +31,8 @@ class QuizzMeRepository(
 
     fun observeLecture(id: String): Flow<LectureEntity?> = lectureDao.observeById(id)
 
-    fun observePastPaper(id: String): Flow<PastPaperEntity?> = pastPaperDao.observeById(id)
+    fun observePastPaper(id: String): Flow<PastPaperEntity?> =
+        pastPaperDao.observeByIdOrAlt(id, "paper_$id")
 
     suspend fun getLecture(id: String): LectureEntity? = lectureDao.getById(id)
 
@@ -125,7 +126,29 @@ class QuizzMeRepository(
     }
 
     suspend fun deletePastPaper(id: String) {
-        pastPaperDao.deleteById(id)
+        pastPaperDao.deleteByIdOrAlt(id, "paper_$id")
+    }
+
+    suspend fun getReferencePastPapersForLecture(lecture: LectureEntity): List<QuizQuestion> {
+        val allPapers = pastPaperDao.getAllOnce()
+        if (allPapers.isEmpty()) return emptyList()
+
+        val exactMatches = allPapers.filter { paper ->
+            paper.id == lecture.id ||
+                paper.id == "paper_${lecture.id}" ||
+                (paper.lesson.equals(lecture.lesson, ignoreCase = true) &&
+                    paper.subject.equals(lecture.subject, ignoreCase = true))
+        }
+        val targetPapers = if (exactMatches.isNotEmpty()) {
+            exactMatches
+        } else {
+            allPapers.filter { it.subject.equals(lecture.subject, ignoreCase = true) }
+        }
+
+        return targetPapers.flatMap { paper ->
+            runCatching { QuizJsonParser.parseQuestions(paper.questionsJson) }
+                .getOrDefault(emptyList())
+        }
     }
 
     suspend fun compileHomeSessionPool(

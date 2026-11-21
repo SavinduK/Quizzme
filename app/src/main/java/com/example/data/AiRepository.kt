@@ -61,16 +61,17 @@ class AiRepository {
                     text(
                         "Extract and structure all core study and subject-related information found inside this document. " +
                             "Automatically fix any clear typos or errors, and add helpful clarifications where concepts need context. " +
-                            "Structure the final output beautifully using clear Markdown (including headings, bullet points, tables, " +
-                            "and blockquotes where appropriate) to ensure the notes are highly clean, scannable, and informative."
+                            "Format the entire output as clean, well-structured semantic HTML using tags such as " +
+                            "<h1>, <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <blockquote>, <table>, <thead>, <tbody>, <tr>, <th>, <td>, <code>, <pre>, and <hr>. " +
+                            "Output raw HTML fragment content directly—do NOT use Markdown, do NOT include <html>/<head>/<body> wrapper tags, and do NOT wrap in code fences."
                     )
                 }
                 val response = textModel.generateContent(prompt)
-                val text = response.text?.trim()
-                if (text.isNullOrBlank()) {
+                val cleaned = cleanHtmlOutput(response.text.orEmpty())
+                if (cleaned.isBlank()) {
                     throw IllegalStateException("AI engine returned an empty extraction.")
                 }
-                text
+                cleaned
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "PDF extraction timed out", e)
@@ -85,10 +86,11 @@ class AiRepository {
 
     fun generateSummaryStream(sourceText: String): Flow<String> = flow {
         val prompt =
-            "You are a world-class academic summarizer. Read the following source text and provide a comprehensive, " +
-                "clear, and highly structured summary. Use Markdown features natively: clear Headings (# and ##), " +
-                "bulleted takeaway lists, bold terms for critical definitions, and short focused paragraphs. " +
-                "Avoid code block syntax envelopes or wrappers—just send the raw Markdown text.\n\nSource Text:\n$sourceText"
+            "You are a world-class academic summarizer. Read the following source notes (which may be HTML or plain text) " +
+                "and provide a comprehensive, clear, and highly structured summary formatted as clean semantic HTML. " +
+                "Organize the summary into logical sections starting with <h2> headings, followed by focused <p> paragraphs, " +
+                "<ul> or <ol> takeaway lists, <strong> key definitions, <table> comparisons when useful, and <blockquote> clinical/exam pearls. " +
+                "Output raw HTML fragment content directly—do NOT use Markdown, do NOT include <html>/<head>/<body> wrapper tags, and do NOT wrap in code fences.\n\nSource Notes:\n$sourceText"
 
         val accumulated = StringBuilder()
         try {
@@ -97,7 +99,10 @@ class AiRepository {
                     val piece = chunk.text.orEmpty()
                     if (piece.isNotEmpty()) {
                         accumulated.append(piece)
-                        emit(accumulated.toString())
+                        val cleaned = cleanHtmlOutput(accumulated.toString())
+                        if (cleaned.isNotEmpty()) {
+                            emit(cleaned)
+                        }
                     }
                 }
             }
@@ -119,29 +124,31 @@ class AiRepository {
         sourceText: String,
         count: Int,
         style: QuestionStyle,
-        customPrompt: String
+        customPrompt: String,
+        referencePastPaperQuestions: List<QuizQuestion> = emptyList()
     ): List<QuizQuestion> {
         val extra = if (customPrompt.isNotBlank()) "\nAdditional Instructions: $customPrompt" else ""
+        val pastPaperReference = buildPastPaperReferenceSection(referencePastPaperQuestions)
         val prompt = when (style) {
             QuestionStyle.MCQ ->
-                "Based on the following source material text, generate exactly $count multiple choice questions. " +
+                "Based on the following lecture notes, generate exactly $count multiple choice questions. " +
                     "Each question must have exactly 5 distinct options. Provide a brief explanation for why the correct answer is correct. " +
-                    "Ensure \"correct_answer\" matches one of the 5 strings in \"options\" verbatim.$extra\n\nSource material text:\n$sourceText"
+                    "Ensure \"correct_answer\" matches one of the 5 strings in \"options\" verbatim.$extra$pastPaperReference\n\nLecture notes:\n$sourceText"
 
             QuestionStyle.TF ->
-                "Based on the following source material text, generate exactly $count True/False style questions. " +
+                "Based on the following lecture notes, generate exactly $count True/False style questions. " +
                     "Each item must contain a header topic text called \"question\", and an array of exactly 5 distinct conceptual \"statements\" related to it, " +
-                    "along with a matching 5-element boolean array \"answers\", and a concise \"explanation\".$extra\n\nSource material text:\n$sourceText"
+                    "along with a matching 5-element boolean array \"answers\", and a concise \"explanation\".$extra$pastPaperReference\n\nLecture notes:\n$sourceText"
 
             QuestionStyle.SA ->
-                "Based on the following source material text, generate exactly $count clear conceptual short answer questions. " +
+                "Based on the following lecture notes, generate exactly $count clear conceptual short answer questions. " +
                     "Each item must contain \"question\", \"correct_answer\" (definitive brief answer key phrase), " +
-                    "and \"explanation\" (complete underlying context).$extra\n\nSource material text:\n$sourceText"
+                    "and \"explanation\" (complete underlying context).$extra$pastPaperReference\n\nLecture notes:\n$sourceText"
 
             QuestionStyle.SEQ ->
-                "Based on the complete source material provided, construct $count comprehensive Structured Essay Questions (SEQs) " +
+                "Based on the complete lecture notes provided, construct $count comprehensive Structured Essay Questions (SEQs) " +
                     "that systematically cover the entire lecture content. Each SEQ must revolve around a core topic in \"question\" and contain " +
-                    "2 to 4 \"sub_questions\" ranging from short recall/definitions to analytical essay prompts, with marks and detailed \"answer_key\" plus a complete \"model_answer\".$extra\n\nSource material text:\n$sourceText"
+                    "2 to 4 \"sub_questions\" ranging from short recall/definitions to analytical essay prompts, with marks and detailed \"answer_key\" plus a complete \"model_answer\".$extra$pastPaperReference\n\nLecture notes:\n$sourceText"
         }
 
         return try {
@@ -198,6 +205,98 @@ class AiRepository {
             Log.e(TAG, "Past paper parsing failed", e)
             throw IllegalStateException(e.localizedMessage ?: "Failed to classify past paper text.")
         }
+    }
+
+    suspend fun parsePastPaperImages(
+        imageBytesList: List<ByteArray>,
+        customPrompt: String = ""
+    ): List<QuizQuestion> {
+        if (imageBytesList.isEmpty()) {
+            throw IllegalArgumentException("No past paper images were provided.")
+        }
+        val totalBytes = imageBytesList.sumOf { it.size.toLong() }
+        if (totalBytes > MAX_INLINE_PDF_BYTES) {
+            throw IllegalArgumentException("Selected images exceed the 18 MB upload limit. Please upload fewer or smaller images.")
+        }
+
+        val extra = if (customPrompt.isNotBlank()) "\nAdditional Instructions: $customPrompt" else ""
+        val promptText =
+            "Analyze all attached past paper images thoroughly. Transcribe and extract every question shown across the images " +
+                "and classify each into its appropriate format:\n" +
+                "- \"MCQ\": Multiple Choice with all options and exact matching \"correct_answer\" plus concise \"explanation\".\n" +
+                "- \"TF\": True/False stem with \"statements\" array, matching boolean \"answers\" array, and \"explanation\".\n" +
+                "- \"SA\": Short Answer with \"correct_answer\" and \"explanation\".\n" +
+                "- \"SEQ\": Structured Essay with \"sub_questions\" (sub_question, marks, answer_key) and \"model_answer\".\n" +
+                "If an image shows questions without a visible answer key, solve them accurately and populate the answer key and explanation.$extra"
+
+        return try {
+            withTimeout(AI_TIMEOUT_MS) {
+                val multimodalContent = content {
+                    imageBytesList.forEach { bytes ->
+                        inlineData(bytes = bytes, mimeType = "image/jpeg")
+                    }
+                    text(promptText)
+                }
+                val response = pastPaperModel.generateContent(multimodalContent)
+                val jsonText = response.text ?: throw IllegalStateException("No response returned from the AI model.")
+                val parsed = QuizJsonParser.parseQuestions(jsonText)
+                if (parsed.isEmpty()) {
+                    throw IllegalStateException("Could not detect any structured questions in the uploaded images.")
+                }
+                parsed
+            }
+        } catch (e: TimeoutCancellationException) {
+            Log.e(TAG, "Past paper image analysis timed out", e)
+            throw IllegalStateException("Past paper image analysis timed out after 60 seconds. Please try again.")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Past paper image analysis failed", e)
+            throw IllegalStateException(e.localizedMessage ?: "Failed to analyze past paper images.")
+        }
+    }
+
+    private fun buildPastPaperReferenceSection(referenceQuestions: List<QuizQuestion>): String {
+        if (referenceQuestions.isEmpty()) return ""
+        val sample = referenceQuestions.take(15)
+        val formatted = sample.mapIndexed { index, q ->
+            val style = q.detectedStyle().shortLabel
+            val details = buildString {
+                append("${index + 1}. [$style] ${q.question}")
+                if (!q.options.isNullOrEmpty()) {
+                    append(" | Options: ${q.options.joinToString(" / ")}")
+                }
+                if (!q.statements.isNullOrEmpty()) {
+                    append(" | Statements: ${q.statements.joinToString("; ")}")
+                }
+                if (!q.subQuestions.isNullOrEmpty()) {
+                    append(" | Sub-questions: ${q.subQuestions.joinToString("; ") { it.subQuestion }}")
+                }
+            }
+            details
+        }.joinToString("\n")
+
+        return "\n\nReference Past Paper Questions (refer closely to these past paper questions to match exam style, difficulty, " +
+            "clinical/academic framing, phrasing, and high-yield tested topics—generate fresh, non-duplicate questions aligned with these past paper patterns):\n$formatted"
+    }
+
+    private fun cleanHtmlOutput(raw: String): String {
+        var cleaned = raw.trim()
+        if (cleaned.startsWith("```")) {
+            cleaned = cleaned.replace(Regex("^```(?:html|xml)?\\s*", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("\\s*```$"), "")
+                .trim()
+        }
+        val bodyMatch = Regex("<body\\b[^>]*>([\\s\\S]*?)</body>", RegexOption.IGNORE_CASE).find(cleaned)
+        if (bodyMatch != null) {
+            cleaned = bodyMatch.groupValues[1].trim()
+        } else {
+            cleaned = cleaned
+                .replace(Regex("<!DOCTYPE[^>]*>", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("</?(?:html|head|body)\\b[^>]*>", RegexOption.IGNORE_CASE), "")
+                .trim()
+        }
+        return cleaned
     }
 
     private fun schemaForStyle(style: QuestionStyle): Schema {

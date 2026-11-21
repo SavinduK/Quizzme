@@ -153,17 +153,25 @@ class LessonReaderViewModel(
             }
 
             try {
+                val referenceQuestions = repository.getReferencePastPapersForLecture(lecture)
                 val questions = repository.aiRepository.generateQuiz(
                     sourceText = lecture.markdownContent,
                     count = settings.questionCount,
                     style = settings.questionStyle,
-                    customPrompt = settings.customPrompt
+                    customPrompt = settings.customPrompt,
+                    referencePastPaperQuestions = referenceQuestions
                 )
                 repository.cacheLectureQuiz(lectureId, questions, settings.questionStyle)
+                val notice = if (referenceQuestions.isNotEmpty()) {
+                    "Generated using ${referenceQuestions.size} past paper reference question(s)."
+                } else {
+                    null
+                }
                 _uiState.update {
                     it.copy(
                         loadingQuiz = false,
                         quizStyle = settings.questionStyle,
+                        quizNotice = notice,
                         quizSession = QuizSessionState(deck = questions)
                     )
                 }

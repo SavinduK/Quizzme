@@ -79,10 +79,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.DeleteConfirmDialog
-import com.example.ui.components.MarkdownText
+import com.example.ui.components.HtmlContent
 import com.example.ui.components.QuizCard
 import com.example.ui.components.QuizResultsCard
-import com.example.ui.components.parseMarkdownToSummaryCards
+import com.example.ui.components.parseHtmlToSummaryCards
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalQuizzMeColors
 import com.example.ui.viewmodel.LessonReaderViewModel
@@ -194,12 +194,12 @@ fun LessonReaderScreen(
                         )
                     }
                     IconButton(
-                        onClick = { shareLessonMarkdown(context, lecture) },
+                        onClick = { shareLessonContent(context, lecture) },
                         modifier = Modifier.testTag("reader_share_button")
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Share,
-                            contentDescription = "Share markdown",
+                            contentDescription = "Share notes",
                             tint = ext.accent,
                             modifier = Modifier.size(20.dp)
                         )
@@ -293,8 +293,8 @@ fun LessonReaderScreen(
                     ) {
                         when (uiState.activeTab) {
                             ReaderTab.NOTES -> {
-                                MarkdownText(
-                                    markdown = uiState.lecture!!.markdownContent,
+                                HtmlContent(
+                                    html = uiState.lecture!!.markdownContent,
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
                             }
@@ -412,7 +412,7 @@ fun LessonReaderScreen(
                                         }
 
                                         val blocks = remember(uiState.summaryText) {
-                                            parseMarkdownToSummaryCards(uiState.summaryText)
+                                            parseHtmlToSummaryCards(uiState.summaryText)
                                         }
                                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                             blocks.forEach { block ->
@@ -433,7 +433,7 @@ fun LessonReaderScreen(
                                                             color = ext.border,
                                                             modifier = Modifier.padding(vertical = 8.dp)
                                                         )
-                                                        MarkdownText(markdown = block.content)
+                                                        HtmlContent(html = block.content)
                                                     }
                                                 }
                                             }
@@ -646,7 +646,7 @@ fun LessonReaderScreen(
                     OutlinedTextField(
                         value = editableText,
                         onValueChange = { editableText = it },
-                        placeholder = { Text("Type lesson markdown content...", color = ext.subtext) },
+                        placeholder = { Text("Type lesson HTML content...", color = ext.subtext) },
                         textStyle = MaterialTheme.typography.bodyMedium.copy(
                             fontFamily = JetBrainsMonoFontFamily,
                             color = ext.title
@@ -655,7 +655,7 @@ fun LessonReaderScreen(
                             .weight(1f)
                             .fillMaxWidth()
                             .padding(16.dp)
-                            .testTag("editor_markdown_input"),
+                            .testTag("editor_html_input"),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color.Transparent,
                             unfocusedBorderColor = Color.Transparent

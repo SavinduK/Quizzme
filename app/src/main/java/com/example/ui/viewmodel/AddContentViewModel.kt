@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.QuizzMeRepository
 import com.example.model.QuizJsonParser
+import com.example.model.QuizQuestion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,10 @@ data class AddNotesUiState(
     val notesText: String = "",
     val attachedFileName: String? = null,
     val processingPdf: Boolean = false,
+    val selectedPaperImageCount: Int = 0,
+    val processingPaperImages: Boolean = false,
+    val extractedPaperQuestions: List<QuizQuestion> = emptyList(),
+    val paperImagesError: String? = null,
     val saving: Boolean = false,
     val alertTitle: String? = null,
     val alertMessage: String? = null,
@@ -77,7 +82,7 @@ class AddContentViewModel(
                         processingPdf = false,
                         notesText = extracted,
                         alertTitle = "Success",
-                        alertMessage = "PDF text extracted and structured successfully.",
+                        alertMessage = "PDF notes extracted and formatted as HTML successfully.",
                         alertIsSuccess = true
                     )
                 }
@@ -97,6 +102,60 @@ class AddContentViewModel(
         }
     }
 
+    fun processPastPaperImages(jpegBytesList: List<ByteArray>) {
+        if (jpegBytesList.isEmpty()) return
+        viewModelScope.launch {
+            _notesState.update {
+                it.copy(
+                    selectedPaperImageCount = jpegBytesList.size,
+                    processingPaperImages = true,
+                    paperImagesError = null
+                )
+            }
+            try {
+                val customPrompt = repository.settingsRepository.getSettingsOnce().customPrompt
+                val questions = repository.aiRepository.parsePastPaperImages(jpegBytesList, customPrompt)
+                _notesState.update {
+                    it.copy(
+                        processingPaperImages = false,
+                        extractedPaperQuestions = questions,
+                        paperImagesError = null
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _notesState.update {
+                    it.copy(
+                        processingPaperImages = false,
+                        extractedPaperQuestions = emptyList(),
+                        paperImagesError = e.localizedMessage ?: "Failed to analyze past paper images."
+                    )
+                }
+            }
+        }
+    }
+
+    fun setPaperImagesError(message: String) {
+        _notesState.update {
+            it.copy(
+                processingPaperImages = false,
+                paperImagesError = message
+            )
+        }
+    }
+
+    fun clearPastPaperImages() {
+        _notesState.update {
+            it.copy(
+                selectedPaperImageCount = 0,
+                processingPaperImages = false,
+                extractedPaperQuestions = emptyList(),
+                paperImagesError = null
+            )
+        }
+    }
+
     fun saveNotes() {
         val s = _notesState.value
         if (s.subject.isBlank() || s.term.isBlank() || s.lesson.isBlank() || s.notesText.isBlank()) {
@@ -112,17 +171,32 @@ class AddContentViewModel(
         viewModelScope.launch {
             _notesState.update { it.copy(saving = true) }
             try {
-                repository.saveLecture(
+                val savedLecture = repository.saveLecture(
                     lesson = s.lesson,
                     subject = s.subject,
                     term = s.term,
                     markdownContent = s.notesText
                 )
+                val paperQuestions = s.extractedPaperQuestions
+                if (paperQuestions.isNotEmpty()) {
+                    repository.savePastPaper(
+                        id = savedLecture.id,
+                        lesson = s.lesson,
+                        subject = s.subject,
+                        term = s.term,
+                        questions = paperQuestions
+                    )
+                }
+                val successMsg = if (paperQuestions.isNotEmpty()) {
+                    "Lesson notes and ${paperQuestions.size} past paper question(s) saved successfully."
+                } else {
+                    "Lesson notes saved and indexed successfully."
+                }
                 _notesState.update {
                     it.copy(
                         saving = false,
                         alertTitle = "Success",
-                        alertMessage = "Lesson notes saved and indexed successfully.",
+                        alertMessage = successMsg,
                         alertIsSuccess = true,
                         navigateBackOnDismiss = true
                     )

@@ -77,6 +77,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.LectureEntity
 import com.example.ui.components.DeleteConfirmDialog
 import com.example.ui.components.QuizzMeHeader
+import com.example.ui.components.htmlToPlainText
 import com.example.ui.theme.LocalQuizzMeColors
 import com.example.ui.theme.subjectAccentColor
 import com.example.ui.viewmodel.LessonsViewModel
@@ -227,7 +228,7 @@ fun LessonsScreen(
                                 onOpenNotes = { onOpenLesson(lecture.id, ReaderTab.NOTES) },
                                 onQuickQuiz = { onOpenLesson(lecture.id, ReaderTab.QUIZ) },
                                 onShare = {
-                                    shareLessonMarkdown(context, lecture)
+                                    shareLessonContent(context, lecture)
                                 },
                                 onCopy = {
                                     copyLessonToClipboard(context, lecture)
@@ -538,14 +539,16 @@ private fun LessonFilterChip(
 
 fun copyLessonToClipboard(context: Context, lecture: LectureEntity) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText(lecture.lesson, lecture.markdownContent))
+    val readable = htmlToPlainText(lecture.markdownContent).ifBlank { lecture.markdownContent }
+    clipboard.setPrimaryClip(ClipData.newPlainText(lecture.lesson, readable))
 }
 
-fun shareLessonMarkdown(context: Context, lecture: LectureEntity) {
+fun shareLessonContent(context: Context, lecture: LectureEntity) {
+    val readable = htmlToPlainText(lecture.markdownContent).ifBlank { lecture.markdownContent }
     val sendIntent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_SUBJECT, "${lecture.lesson} (${lecture.subject})")
-        putExtra(Intent.EXTRA_TEXT, lecture.markdownContent)
+        putExtra(Intent.EXTRA_TEXT, readable)
     }
     context.startActivity(Intent.createChooser(sendIntent, "Share ${lecture.lesson}"))
 }
