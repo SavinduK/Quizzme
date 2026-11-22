@@ -156,7 +156,8 @@ class QuizzMeRepository(
         selectedSubject: String?,
         selectedTerm: String?,
         selectedType: QuestionStyle,
-        maxQuestions: Int
+        maxQuestions: Int,
+        selectedLesson: String? = null
     ): List<QuizQuestion> {
         val collected = mutableListOf<QuizQuestion>()
         if (sourceMode == SourceMode.AI) {
@@ -166,8 +167,10 @@ class QuizzMeRepository(
                     lecture.subject.equals(selectedSubject, ignoreCase = true)
                 val matchTerm = selectedTerm == null ||
                     lecture.term.equals(selectedTerm, ignoreCase = true)
+                val matchLesson = selectedLesson == null ||
+                    lecture.lesson.equals(selectedLesson, ignoreCase = true)
                 val rawJson = lecture.cachedQuizJson
-                if (matchSubject && matchTerm && !rawJson.isNullOrBlank()) {
+                if (matchSubject && matchTerm && matchLesson && !rawJson.isNullOrBlank()) {
                     runCatching { QuizJsonParser.parseQuestions(rawJson) }
                         .getOrNull()
                         ?.filter { it.detectedStyle() == selectedType }
@@ -181,7 +184,9 @@ class QuizzMeRepository(
                     paper.subject.equals(selectedSubject, ignoreCase = true)
                 val matchTerm = selectedTerm == null ||
                     paper.term.equals(selectedTerm, ignoreCase = true)
-                if (matchSubject && matchTerm && paper.questionsJson.isNotBlank()) {
+                val matchLesson = selectedLesson == null ||
+                    paper.lesson.equals(selectedLesson, ignoreCase = true)
+                if (matchSubject && matchTerm && matchLesson && paper.questionsJson.isNotBlank()) {
                     runCatching { QuizJsonParser.parseQuestions(paper.questionsJson) }
                         .getOrNull()
                         ?.filter { it.detectedStyle() == selectedType }

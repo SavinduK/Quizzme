@@ -10,8 +10,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,9 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
@@ -37,26 +33,18 @@ import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -76,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.LectureEntity
 import com.example.ui.components.DeleteConfirmDialog
+import com.example.ui.components.FolderSortOrder
 import com.example.ui.components.QuizzMeHeader
 import com.example.ui.components.htmlToPlainText
 import com.example.ui.theme.LocalQuizzMeColors
@@ -84,10 +73,10 @@ import com.example.ui.viewmodel.LessonsViewModel
 import com.example.ui.viewmodel.ReaderTab
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LessonsScreen(
     viewModel: LessonsViewModel,
+    onOpenDrawer: () -> Unit,
     onAddNotesClick: () -> Unit,
     onOpenLesson: (lectureId: String, initialTab: ReaderTab) -> Unit,
     modifier: Modifier = Modifier
@@ -98,7 +87,6 @@ fun LessonsScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var showFilterModal by remember { mutableStateOf(false) }
     var deleteTargetId by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -108,6 +96,9 @@ fun LessonsScreen(
         ) {
             QuizzMeHeader(
                 title = "Lectures",
+                onMenuClick = onOpenDrawer,
+                menuButtonTag = "lessons_drawer_button",
+                hasActiveDrawerFilter = uiState.hasActiveFilter,
                 onAddClick = onAddNotesClick,
                 addButtonTag = "lessons_add_notes_button"
             )
@@ -118,7 +109,7 @@ fun LessonsScreen(
                     .widthIn(max = 680.dp)
                     .fillMaxWidth()
             ) {
-                // Search & Filter Bar
+                // Search Bar + Sort Pill
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -166,25 +157,112 @@ fun LessonsScreen(
                     )
 
                     Surface(
-                        onClick = { showFilterModal = true },
+                        onClick = {
+                            val next = if (uiState.sortOrder == FolderSortOrder.RECENT) {
+                                FolderSortOrder.TITLE_ASC
+                            } else {
+                                FolderSortOrder.RECENT
+                            }
+                            viewModel.setSortOrder(next)
+                        },
                         shape = RoundedCornerShape(14.dp),
                         color = ext.card,
+                        border = BorderStroke(1.dp, ext.border),
+                        modifier = Modifier
+                            .height(54.dp)
+                            .testTag("lessons_sort_toggle")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SwapVert,
+                                contentDescription = "Toggle sort order",
+                                tint = ext.accent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = uiState.sortOrder.label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = ext.title
+                            )
+                        }
+                    }
+                }
+
+                // Active Term Folder Breadcrumb Strip
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        onClick = onOpenDrawer,
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (uiState.selectedTerm != null) ext.accentSoft else ext.card,
                         border = BorderStroke(
                             1.dp,
-                            if (uiState.hasActiveFilter) ext.accent else ext.border
+                            if (uiState.selectedTerm != null) ext.accent else ext.border
                         ),
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .size(54.dp)
-                            .testTag("lessons_filter_button")
+                        modifier = Modifier.testTag("lessons_active_folder_chip")
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Icon(
-                                imageVector = Icons.Rounded.Tune,
-                                contentDescription = "Filter lectures",
-                                tint = if (uiState.hasActiveFilter) ext.accent else ext.title,
-                                modifier = Modifier.size(20.dp)
+                                imageVector = Icons.Rounded.FolderOpen,
+                                contentDescription = null,
+                                tint = ext.accent,
+                                modifier = Modifier.size(15.dp)
                             )
+                            Text(
+                                text = uiState.selectedTerm?.let { term ->
+                                    if (term.startsWith("Term", ignoreCase = true) || term == "Uncategorized") {
+                                        term
+                                    } else {
+                                        "Term $term"
+                                    }
+                                } ?: "All Terms",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = if (uiState.selectedTerm != null) ext.accent else ext.title
+                            )
+                        }
+                    }
+
+                    if (uiState.selectedTerm != null) {
+                        Surface(
+                            onClick = viewModel::resetFilters,
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, ext.border),
+                            modifier = Modifier.testTag("lessons_clear_folder_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "Clear term filter",
+                                    tint = ext.subtext,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Show All",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ext.subtext
+                                )
+                            }
                         }
                     }
                 }
@@ -193,7 +271,7 @@ fun LessonsScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 64.dp, start = 32.dp, end = 32.dp),
+                            .padding(top = 56.dp, start = 32.dp, end = 32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
@@ -227,9 +305,7 @@ fun LessonsScreen(
                                 lecture = lecture,
                                 onOpenNotes = { onOpenLesson(lecture.id, ReaderTab.NOTES) },
                                 onQuickQuiz = { onOpenLesson(lecture.id, ReaderTab.QUIZ) },
-                                onShare = {
-                                    shareLessonContent(context, lecture)
-                                },
+                                onShare = { shareLessonContent(context, lecture) },
                                 onCopy = {
                                     copyLessonToClipboard(context, lecture)
                                     scope.launch {
@@ -263,116 +339,6 @@ fun LessonsScreen(
                 deleteTargetId = null
             }
         )
-    }
-
-    if (showFilterModal) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { showFilterModal = false },
-            sheetState = sheetState,
-            containerColor = ext.card,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = 28.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Filter Options",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = ext.title
-                    )
-                    IconButton(onClick = { showFilterModal = false }) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Close", tint = ext.title)
-                    }
-                }
-                HorizontalDivider(color = ext.border)
-
-                Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 18.dp)) {
-                    Text("SUBJECT", style = MaterialTheme.typography.labelSmall, color = ext.subtext)
-                    Spacer(Modifier.height(10.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        LessonFilterChip(
-                            label = "All",
-                            selected = uiState.selectedSubject == null,
-                            onClick = { viewModel.setSelectedSubject(null) }
-                        )
-                        uiState.uniqueSubjects.forEach { sub ->
-                            LessonFilterChip(
-                                label = sub,
-                                selected = uiState.selectedSubject.equals(sub, ignoreCase = true),
-                                onClick = { viewModel.setSelectedSubject(sub) }
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(22.dp))
-
-                    Text("TERM", style = MaterialTheme.typography.labelSmall, color = ext.subtext)
-                    Spacer(Modifier.height(10.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        LessonFilterChip(
-                            label = "All",
-                            selected = uiState.selectedTerm == null,
-                            onClick = { viewModel.setSelectedTerm(null) }
-                        )
-                        uiState.uniqueTerms.forEach { term ->
-                            LessonFilterChip(
-                                label = term,
-                                selected = uiState.selectedTerm.equals(term, ignoreCase = true),
-                                onClick = { viewModel.setSelectedTerm(term) }
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(28.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = viewModel::resetFilters,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, ext.border)
-                        ) {
-                            Text("Reset All", color = ext.title)
-                        }
-                        Button(
-                            onClick = { showFilterModal = false },
-                            modifier = Modifier
-                                .weight(1.6f)
-                                .height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ext.accent,
-                                contentColor = Color.White
-                            )
-                        ) {
-                            Text("Apply Filters", style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -436,7 +402,11 @@ private fun LessonModuleCard(
                     )
                     Text(text = "|", style = MaterialTheme.typography.bodySmall, color = ext.subtext)
                     Text(
-                        text = "Term ${lecture.term}",
+                        text = if (lecture.term.startsWith("Term", ignoreCase = true)) {
+                            lecture.term
+                        } else {
+                            "Term ${lecture.term}"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = ext.subtext
                     )
@@ -511,29 +481,6 @@ private fun LessonModuleCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun LessonFilterChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val ext = LocalQuizzMeColors.current
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) ext.accentSoft else Color.Transparent,
-        border = BorderStroke(1.dp, if (selected) ext.accent else ext.border),
-        modifier = Modifier.minimumInteractiveComponentSize()
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = if (selected) ext.accent else ext.title,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp)
-        )
     }
 }
 

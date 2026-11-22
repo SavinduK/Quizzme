@@ -61,6 +61,7 @@ import com.example.ui.viewmodel.HomeViewModel
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
+    onOpenDrawer: () -> Unit,
     onNavigateToAddPaper: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -75,6 +76,9 @@ fun HomeScreen(
     ) {
         QuizzMeHeader(
             title = "Questions",
+            onMenuClick = onOpenDrawer,
+            menuButtonTag = "home_drawer_button",
+            hasActiveDrawerFilter = uiState.selectedTerm != null || uiState.selectedLesson != null,
             onAddClick = onNavigateToAddPaper,
             addButtonTag = "home_add_paper_button"
         )
@@ -93,26 +97,39 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = if (uiState.sourceMode == SourceMode.PAST_PAPER) {
-                            Icons.Rounded.Description
-                        } else {
-                            Icons.Rounded.Bolt
-                        },
-                        contentDescription = null,
-                        tint = ext.accent,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = uiState.sourceMode.label.uppercase(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = ext.subtext
-                    )
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (uiState.sourceMode == SourceMode.PAST_PAPER) {
+                                Icons.Rounded.Description
+                            } else {
+                                Icons.Rounded.Bolt
+                            },
+                            contentDescription = null,
+                            tint = ext.accent,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = uiState.sourceMode.label.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ext.subtext
+                        )
+                    }
+                    val folderPath = listOfNotNull(
+                        uiState.selectedTerm?.let { if (it.startsWith("Term", ignoreCase = true) || it == "Uncategorized") it else "Term $it" },
+                        uiState.selectedLesson
+                    ).joinToString(" / ")
+                    if (folderPath.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = folderPath,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ext.accent
+                        )
+                    }
                 }
 
                 Surface(

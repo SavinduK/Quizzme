@@ -2,7 +2,6 @@
 agp = "9.1.1"
 kotlin = "2.2.21"
 ksp = "2.3.6"
-googleServices = "4.4.4"
 coreKtx = "1.16.0"
 lifecycleRuntimeKtx = "2.9.0"
 activityCompose = "1.10.1"
@@ -11,7 +10,6 @@ navigationCompose = "2.9.0"
 kotlinxSerializationJson = "1.8.1"
 room = "2.7.1"
 datastore = "1.1.7"
-firebaseBom = "35.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -33,14 +31,9 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
-firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
-firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
-firebase-appcheck-debug = { group = "com.google.firebase", name = "firebase-appcheck-debug" }
-firebase-appcheck-recaptcha = { group = "com.google.firebase", name = "firebase-appcheck-recaptcha" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }

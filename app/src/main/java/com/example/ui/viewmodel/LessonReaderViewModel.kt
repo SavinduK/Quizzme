@@ -6,6 +6,7 @@ import com.example.data.QuizzMeRepository
 import com.example.data.local.LectureEntity
 import com.example.model.QuestionStyle
 import com.example.model.QuizJsonParser
+import com.example.ui.components.stripHtmlAndCssTags
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -115,11 +116,12 @@ class LessonReaderViewModel(
         _uiState.update { it.copy(snackbarMessage = null) }
     }
 
-    fun saveEditedNotes(newMarkdown: String, onSuccess: () -> Unit) {
+    fun saveEditedNotes(newNotesText: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSavingEdit = true) }
             try {
-                repository.updateLectureContent(lectureId, newMarkdown)
+                val cleanPlainText = stripHtmlAndCssTags(newNotesText)
+                repository.updateLectureContent(lectureId, cleanPlainText)
                 _uiState.update {
                     it.copy(
                         isSavingEdit = false,

@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.QuizzMeRepository
 import com.example.model.QuestionStyle
 import com.example.model.SourceMode
+import com.example.ui.components.DrawerFolderItem
+import com.example.ui.components.FolderSortOrder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,8 +18,12 @@ data class HomeUiState(
     val sourceMode: SourceMode = SourceMode.AI,
     val availableSubjects: List<String> = emptyList(),
     val availableTerms: List<String> = emptyList(),
+    val drawerItems: List<DrawerFolderItem> = emptyList(),
+    val sortOrder: FolderSortOrder = FolderSortOrder.RECENT,
     val selectedSubject: String? = null,
     val selectedTerm: String? = null,
+    val selectedLesson: String? = null,
+    val selectedDrawerItemId: String? = null,
     val selectedType: QuestionStyle = QuestionStyle.MCQ,
     val maxQuestionsCount: Int = 5,
     val quizState: QuizSessionState = QuizSessionState()
@@ -25,6 +31,7 @@ data class HomeUiState(
     val hasActiveFilters: Boolean
         get() = selectedSubject != null ||
             selectedTerm != null ||
+            selectedLesson != null ||
             selectedType != QuestionStyle.MCQ ||
             sourceMode != SourceMode.AI
 }
@@ -47,21 +54,41 @@ class HomeViewModel(
             ) { lectures, papers, settings, currentMode ->
                 val subjects: List<String>
                 val terms: List<String>
+                val folderItems: List<DrawerFolderItem>
                 if (currentMode == SourceMode.AI) {
                     val withQuizzes = lectures.filter { !it.cachedQuizJson.isNullOrBlank() }
                     subjects = withQuizzes.map { it.subject }.filter { it.isNotBlank() }.distinct().sorted()
                     terms = withQuizzes.map { it.term }.filter { it.isNotBlank() }.distinct().sorted()
+                    folderItems = withQuizzes.map {
+                        DrawerFolderItem(
+                            id = it.id,
+                            title = it.lesson,
+                            subject = it.subject,
+                            term = it.term,
+                            updatedAt = it.updatedAt
+                        )
+                    }
                 } else {
                     subjects = papers.map { it.subject }.filter { it.isNotBlank() }.distinct().sorted()
                     terms = papers.map { it.term }.filter { it.isNotBlank() }.distinct().sorted()
+                    folderItems = papers.map {
+                        DrawerFolderItem(
+                            id = it.id,
+                            title = it.lesson,
+                            subject = it.subject,
+                            term = it.term,
+                            updatedAt = it.updatedAt
+                        )
+                    }
                 }
-                Triple(subjects, terms, settings.questionCount)
-            }.collect { (subjects, terms, maxCount) ->
+                HomeMetaSnapshot(subjects, terms, folderItems, settings.questionCount)
+            }.collect { meta ->
                 _uiState.update {
                     it.copy(
-                        availableSubjects = subjects,
-                        availableTerms = terms,
-                        maxQuestionsCount = maxCount
+                        availableSubjects = meta.subjects,
+                        availableTerms = meta.terms,
+                        drawerItems = meta.folderItems,
+                        maxQuestionsCount = meta.maxCount
                     )
                 }
                 recompileSessionPool()
@@ -74,11 +101,17 @@ class HomeViewModel(
             it.copy(
                 sourceMode = mode,
                 selectedSubject = null,
-                selectedTerm = null
+                selectedTerm = null,
+                selectedLesson = null,
+                selectedDrawerItemId = null
             )
         }
         _sourceMode.value = mode
         recompileSessionPool()
+    }
+
+    fun setSortOrder(order: FolderSortOrder) {
+        _uiState.update { it.copy(sortOrder = order) }
     }
 
     fun setSelectedType(type: QuestionStyle) {
@@ -92,7 +125,35 @@ class HomeViewModel(
     }
 
     fun setSelectedTerm(term: String?) {
-        _uiState.update { it.copy(selectedTerm = term) }
+        _uiState.update {
+            it.copy(
+                selectedTerm = term,
+                selectedLesson = null,
+                selectedDrawerItemId = null
+            )
+        }
+        recompileSessionPool()
+    }
+
+    fun selectDrawerItem(item: DrawerFolderItem) {
+        _uiState.update {
+            it.copy(
+                selectedTerm = item.term.ifBlank { "Uncategorized" },
+                selectedLesson = item.title,
+                selectedDrawerItemId = item.id
+            )
+        }
+        recompileSessionPool()
+    }
+
+    fun clearDrawerSelection() {
+        _uiState.update {
+            it.copy(
+                selectedTerm = null,
+                selectedLesson = null,
+                selectedDrawerItemId = null
+            )
+        }
         recompileSessionPool()
     }
 
@@ -101,6 +162,8 @@ class HomeViewModel(
             it.copy(
                 selectedSubject = null,
                 selectedTerm = null,
+                selectedLesson = null,
+                selectedDrawerItemId = null,
                 selectedType = QuestionStyle.MCQ
             )
         }
@@ -110,12 +173,14 @@ class HomeViewModel(
     fun recompileSessionPool() {
         val snapshot = _uiState.value
         viewModelScope.launch {
+            val effectiveTerm = snapshot.selectedTerm?.takeUnless { it == "Uncategorized" }
             val pool = repository.compileHomeSessionPool(
                 sourceMode = snapshot.sourceMode,
                 selectedSubject = snapshot.selectedSubject,
-                selectedTerm = snapshot.selectedTerm,
+                selectedTerm = effectiveTerm,
                 selectedType = snapshot.selectedType,
-                maxQuestions = snapshot.maxQuestionsCount
+                maxQuestions = snapshot.maxQuestionsCount,
+                selectedLesson = snapshot.selectedLesson
             )
             _uiState.update {
                 it.copy(quizState = QuizSessionState(deck = pool))
@@ -189,4 +254,11 @@ class HomeViewModel(
             state.copy(quizState = state.quizState.advanceToNextQuestion())
         }
     }
+
+    private data class HomeMetaSnapshot(
+        val subjects: List<String>,
+        val terms: List<String>,
+        val folderItems: List<DrawerFolderItem>,
+        val maxCount: Int
+    )
 }

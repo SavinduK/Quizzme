@@ -91,6 +91,41 @@ fun htmlToPlainText(rawHtml: String): String {
         .trim()
 }
 
+fun htmlToEditablePlainText(rawHtml: String): String {
+    var text = sanitizeHtmlFragment(rawHtml)
+    if (text.isBlank()) return ""
+    text = text
+        .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+        .replace(Regex("</(?:p|div|section|blockquote|h[1-6]|pre)>", RegexOption.IGNORE_CASE), "\n\n")
+        .replace(Regex("<li\\b[^>]*>", RegexOption.IGNORE_CASE), "• ")
+        .replace(Regex("</li>", RegexOption.IGNORE_CASE), "\n")
+        .replace(Regex("</t[hd]>", RegexOption.IGNORE_CASE), "  ")
+        .replace(Regex("</tr>", RegexOption.IGNORE_CASE), "\n")
+        .replace(Regex("<hr\\b[^>]*>", RegexOption.IGNORE_CASE), "\n---\n")
+        .replace(Regex("<[^>]+>"), "")
+    text = decodeEntities(text)
+    return text
+        .lines()
+        .joinToString("\n") { it.trimEnd() }
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+}
+
+fun stripHtmlAndCssTags(rawText: String): String {
+    var cleaned = rawText
+        .replace(Regex("<!--([\\s\\S]*?)-->"), "")
+        .replace(Regex("<(script|style)\\b[^>]*>[\\s\\S]*?</\\1>", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+        .replace(Regex("</(?:p|div|section|blockquote|h[1-6]|li|tr)>", RegexOption.IGNORE_CASE), "\n")
+        .replace(Regex("<[^>]+>"), "")
+    cleaned = decodeEntities(cleaned)
+    return cleaned
+        .lines()
+        .joinToString("\n") { it.trimEnd() }
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+}
+
 fun parseHtmlToSummaryCards(rawHtml: String): List<SummaryCardBlock> {
     val html = sanitizeHtmlFragment(rawHtml)
     if (html.isBlank()) return emptyList()
@@ -417,11 +452,11 @@ private fun parseHtmlToBlocks(raw: String): List<HtmlBlock> {
 private fun appendLooseTextAsParagraphs(fragment: String, out: MutableList<HtmlBlock>) {
     val trimmed = fragment.trim()
     if (trimmed.isEmpty()) return
-    // Split on double newlines or <br><br> if plain text was mixed in
+    // Split on blank lines into paragraphs while preserving single line breaks
     trimmed.split(Regex("(?:\\r?\\n){2,}")).forEach { chunk ->
         val clean = chunk.trim()
         if (clean.isNotEmpty()) {
-            out.add(HtmlBlock.Paragraph(clean))
+            out.add(HtmlBlock.Paragraph(clean.replace(Regex("\\r?\\n"), "<br/>")))
         }
     }
 }

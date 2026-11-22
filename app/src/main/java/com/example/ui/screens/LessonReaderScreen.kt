@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -33,7 +34,6 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
@@ -82,6 +82,7 @@ import com.example.ui.components.DeleteConfirmDialog
 import com.example.ui.components.HtmlContent
 import com.example.ui.components.QuizCard
 import com.example.ui.components.QuizResultsCard
+import com.example.ui.components.htmlToEditablePlainText
 import com.example.ui.components.parseHtmlToSummaryCards
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalQuizzMeColors
@@ -127,7 +128,7 @@ fun LessonReaderScreen(
             if (uiState.activeTab == ReaderTab.NOTES && uiState.lecture != null) {
                 FloatingActionButton(
                     onClick = {
-                        editableText = uiState.lecture?.markdownContent.orEmpty()
+                        editableText = htmlToEditablePlainText(uiState.lecture?.markdownContent.orEmpty())
                         showEditModal = true
                     },
                     containerColor = ext.accent,
@@ -230,7 +231,7 @@ fun LessonReaderScreen(
                     ) {
                         ReaderTabButton(
                             label = "Notes",
-                            icon = Icons.Rounded.MenuBook,
+                            icon = Icons.AutoMirrored.Rounded.MenuBook,
                             selected = uiState.activeTab == ReaderTab.NOTES,
                             onClick = { viewModel.selectTab(ReaderTab.NOTES) },
                             tag = "tab_notes",
@@ -646,9 +647,8 @@ fun LessonReaderScreen(
                     OutlinedTextField(
                         value = editableText,
                         onValueChange = { editableText = it },
-                        placeholder = { Text("Type lesson HTML content...", color = ext.subtext) },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = JetBrainsMonoFontFamily,
+                        placeholder = { Text("Edit lesson notes text...", color = ext.subtext) },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = ext.title
                         ),
                         modifier = Modifier

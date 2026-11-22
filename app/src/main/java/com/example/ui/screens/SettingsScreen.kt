@@ -22,13 +22,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -45,11 +50,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.model.GeminiModelOption
 import com.example.model.QuestionStyle
 import com.example.ui.components.QuizzMeAlertDialog
 import com.example.ui.components.QuizzMeHeader
+import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalQuizzMeColors
 import com.example.ui.viewmodel.SettingsViewModel
 
@@ -61,8 +70,9 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val ext = LocalQuizzMeColors.current
 
-    var aiExpanded by remember { mutableStateOf(false) }
+    var aiExpanded by remember { mutableStateOf(true) }
     var quizExpanded by remember { mutableStateOf(true) }
+    var showApiKey by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -80,7 +90,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 20.dp)
         ) {
-            // Section 1: AI Settings (Firebase AI Logic)
+            // Section 1: AI Settings (Manual Gemini API Key + Model Selection)
             AccordionHeader(
                 title = "AI SETTINGS",
                 expanded = aiExpanded,
@@ -89,37 +99,139 @@ fun SettingsScreen(
             )
 
             AnimatedVisibility(visible = aiExpanded) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = ext.card,
-                    border = BorderStroke(1.dp, ext.border)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            tint = ext.accent,
-                            modifier = Modifier.size(22.dp)
+                Column(modifier = Modifier.padding(top = 10.dp, bottom = 6.dp)) {
+                    Text(
+                        text = "Gemini API Key",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = ext.title
+                    )
+                    Spacer(Modifier.height(6.dp))
+
+                    OutlinedTextField(
+                        value = uiState.geminiApiKey,
+                        onValueChange = viewModel::setGeminiApiKey,
+                        singleLine = true,
+                        placeholder = {
+                            Text("Paste your Gemini API key (AIza...)", color = ext.subtext)
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Key,
+                                contentDescription = null,
+                                tint = ext.accent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { showApiKey = !showApiKey },
+                                modifier = Modifier.testTag("settings_toggle_api_key_visibility")
+                            ) {
+                                Icon(
+                                    imageVector = if (showApiKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                    contentDescription = if (showApiKey) "Hide API key" else "Show API key",
+                                    tint = ext.subtext
+                                )
+                            }
+                        },
+                        visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = JetBrainsMonoFontFamily,
+                            color = ext.title
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_api_key_input"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ext.accent,
+                            unfocusedBorderColor = ext.border,
+                            focusedContainerColor = ext.card,
+                            unfocusedContainerColor = ext.card
                         )
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Firebase AI Logic (Gemini 3.8 Flash)",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = ext.title
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = "Authenticated automatically via App Check. No manual API key is needed.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = ext.subtext
-                            )
+                    )
+
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Stored locally on device and sent directly to Gemini Developer API.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ext.subtext
+                    )
+
+                    Spacer(Modifier.height(18.dp))
+
+                    Text(
+                        text = "Gemini Model",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = ext.title
+                    )
+                    Spacer(Modifier.height(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        GeminiModelOption.entries.forEach { option ->
+                            val selected = uiState.selectedModel == option
+                            Surface(
+                                onClick = { viewModel.setSelectedModel(option) },
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (selected) ext.accentSoft else ext.card,
+                                border = BorderStroke(1.dp, if (selected) ext.accent else ext.border),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("settings_model_${option.name.lowercase()}")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = if (selected) ext.accent else ext.subtext,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = option.displayName,
+                                                style = MaterialTheme.typography.titleSmall.copy(
+                                                    fontWeight = FontWeight.Bold
+                                                ),
+                                                color = if (selected) ext.accent else ext.title
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (selected) ext.accent else ext.background,
+                                                border = if (selected) null else BorderStroke(1.dp, ext.border)
+                                            ) {
+                                                Text(
+                                                    text = option.tierLabel,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (selected) androidx.compose.ui.graphics.Color.White else ext.subtext,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = option.modelId,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontFamily = JetBrainsMonoFontFamily
+                                            ),
+                                            color = ext.subtext
+                                        )
+                                        Spacer(Modifier.height(3.dp))
+                                        Text(
+                                            text = option.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = ext.text
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -241,42 +353,44 @@ fun SettingsScreen(
                             unfocusedTextColor = ext.title
                         )
                     )
-
-                    Spacer(Modifier.height(20.dp))
-
-                    OutlinedButton(
-                        onClick = viewModel::saveSettings,
-                        enabled = !uiState.isSaving,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("settings_save_button"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = ext.accentSoft,
-                            contentColor = ext.accent
-                        ),
-                        border = BorderStroke(1.dp, ext.accent)
-                    ) {
-                        if (uiState.isSaving) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = ext.accent
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.Save,
-                                contentDescription = null,
-                                tint = ext.accent,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Save Configurations", style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
                 }
             }
+
+            Spacer(Modifier.height(24.dp))
+
+            OutlinedButton(
+                onClick = viewModel::saveSettings,
+                enabled = !uiState.isSaving,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("settings_save_button"),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = ext.accentSoft,
+                    contentColor = ext.accent
+                ),
+                border = BorderStroke(1.dp, ext.accent)
+            ) {
+                if (uiState.isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = ext.accent
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Save,
+                        contentDescription = null,
+                        tint = ext.accent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Save Configurations", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
         }
     }
 

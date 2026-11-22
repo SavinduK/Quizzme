@@ -29,6 +29,42 @@ enum class SourceMode(val label: String) {
     PAST_PAPER("Saved Past Papers")
 }
 
+enum class GeminiModelOption(
+    val modelId: String,
+    val displayName: String,
+    val tierLabel: String,
+    val description: String
+) {
+    FLASH(
+        modelId = "gemini-3.8-flash",
+        displayName = "Gemini 3.8 Flash",
+        tierLabel = "Flash",
+        description = "Fast, balanced intelligence for PDF extraction & quizzes"
+    ),
+    FLASH_LITE(
+        modelId = "gemini-3.5-flash-lite",
+        displayName = "Gemini 3.5 Flash-Lite",
+        tierLabel = "Flash-Lite",
+        description = "Ultra-fast, lightweight model for high-speed generation"
+    ),
+    PRO(
+        modelId = "gemini-3.1-pro-preview",
+        displayName = "Gemini 3.1 Pro",
+        tierLabel = "Pro",
+        description = "Deepest reasoning for complex past papers and essays"
+    );
+
+    companion object {
+        fun fromIdOrName(raw: String?): GeminiModelOption {
+            val clean = raw?.trim().orEmpty()
+            return entries.firstOrNull {
+                it.name.equals(clean, ignoreCase = true) ||
+                    it.modelId.equals(clean, ignoreCase = true)
+            } ?: FLASH
+        }
+    }
+}
+
 @Serializable
 data class SeqSubQuestion(
     @SerialName("sub_question")
@@ -82,6 +118,8 @@ data class TrackerTaskJsonItem(
 )
 
 data class QuizSettings(
+    val geminiApiKey: String = "",
+    val selectedModel: GeminiModelOption = GeminiModelOption.FLASH,
     val questionCount: Int = 5,
     val questionStyle: QuestionStyle = QuestionStyle.MCQ,
     val customPrompt: String = ""

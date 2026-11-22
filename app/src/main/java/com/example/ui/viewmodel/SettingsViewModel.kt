@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.QuizzMeRepository
+import com.example.model.GeminiModelOption
 import com.example.model.QuestionStyle
 import com.example.model.QuizSettings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class SettingsUiState(
+    val geminiApiKey: String = "",
+    val selectedModel: GeminiModelOption = GeminiModelOption.FLASH,
     val questionCount: Int = 5,
     val questionStyle: QuestionStyle = QuestionStyle.MCQ,
     val customPrompt: String = "",
@@ -33,6 +36,8 @@ class SettingsViewModel(
             repository.settingsFlow.collect { saved ->
                 _uiState.update {
                     it.copy(
+                        geminiApiKey = saved.geminiApiKey,
+                        selectedModel = saved.selectedModel,
                         questionCount = saved.questionCount,
                         questionStyle = saved.questionStyle,
                         customPrompt = saved.customPrompt
@@ -40,6 +45,14 @@ class SettingsViewModel(
                 }
             }
         }
+    }
+
+    fun setGeminiApiKey(key: String) {
+        _uiState.update { it.copy(geminiApiKey = key) }
+    }
+
+    fun setSelectedModel(model: GeminiModelOption) {
+        _uiState.update { it.copy(selectedModel = model) }
     }
 
     fun setQuestionCount(count: Int) {
@@ -61,6 +74,8 @@ class SettingsViewModel(
             try {
                 repository.settingsRepository.saveSettings(
                     QuizSettings(
+                        geminiApiKey = current.geminiApiKey,
+                        selectedModel = current.selectedModel,
                         questionCount = current.questionCount,
                         questionStyle = current.questionStyle,
                         customPrompt = current.customPrompt
@@ -70,7 +85,7 @@ class SettingsViewModel(
                     it.copy(
                         isSaving = false,
                         alertTitle = "Success",
-                        alertMessage = "Configuration preferences updated successfully.",
+                        alertMessage = "AI & quiz configurations saved successfully.",
                         alertIsSuccess = true
                     )
                 }
