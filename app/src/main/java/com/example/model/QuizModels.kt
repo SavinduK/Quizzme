@@ -35,23 +35,41 @@ enum class GeminiModelOption(
     val tierLabel: String,
     val description: String
 ) {
+    GEMINI_2_5_FLASH(
+        modelId = "gemini-2.5-flash",
+        displayName = "Gemini 2.5 Flash",
+        tierLabel = "2.5 Flash",
+        description = "Reliable hybrid reasoning model for fast PDF extraction & quizzes"
+    ),
+    GEMINI_2_5_FLASH_LITE(
+        modelId = "gemini-2.5-flash-lite",
+        displayName = "Gemini 2.5 Flash-Lite",
+        tierLabel = "2.5 Lite",
+        description = "Low-latency, cost-efficient model for quick summaries and quizzes"
+    ),
+    GEMINI_2_5_PRO(
+        modelId = "gemini-2.5-pro",
+        displayName = "Gemini 2.5 Pro",
+        tierLabel = "2.5 Pro",
+        description = "High-precision thinking model for dense notes and structured essays"
+    ),
     FLASH(
         modelId = "gemini-3.8-flash",
         displayName = "Gemini 3.8 Flash",
-        tierLabel = "Flash",
-        description = "Fast, balanced intelligence for PDF extraction & quizzes"
+        tierLabel = "3.8 Flash",
+        description = "Next-gen fast, balanced intelligence for extraction & quizzes"
     ),
     FLASH_LITE(
         modelId = "gemini-3.5-flash-lite",
         displayName = "Gemini 3.5 Flash-Lite",
-        tierLabel = "Flash-Lite",
-        description = "Ultra-fast, lightweight model for high-speed generation"
+        tierLabel = "3.5 Lite",
+        description = "Ultra-fast, lightweight Gemini 3.5 model for high-speed runs"
     ),
     PRO(
         modelId = "gemini-3.1-pro-preview",
         displayName = "Gemini 3.1 Pro",
-        tierLabel = "Pro",
-        description = "Deepest reasoning for complex past papers and essays"
+        tierLabel = "3.1 Pro",
+        description = "Deepest reasoning preview for complex past papers and essays"
     );
 
     companion object {
@@ -60,7 +78,7 @@ enum class GeminiModelOption(
             return entries.firstOrNull {
                 it.name.equals(clean, ignoreCase = true) ||
                     it.modelId.equals(clean, ignoreCase = true)
-            } ?: FLASH
+            } ?: GEMINI_2_5_FLASH
         }
     }
 }
@@ -119,7 +137,7 @@ data class TrackerTaskJsonItem(
 
 data class QuizSettings(
     val geminiApiKey: String = "",
-    val selectedModel: GeminiModelOption = GeminiModelOption.FLASH,
+    val selectedModel: GeminiModelOption = GeminiModelOption.GEMINI_2_5_FLASH,
     val questionCount: Int = 5,
     val questionStyle: QuestionStyle = QuestionStyle.MCQ,
     val customPrompt: String = ""

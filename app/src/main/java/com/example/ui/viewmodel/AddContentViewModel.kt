@@ -82,7 +82,7 @@ class AddContentViewModel(
                         processingPdf = false,
                         notesText = extracted,
                         alertTitle = "Success",
-                        alertMessage = "PDF notes extracted and formatted as HTML successfully.",
+                        alertMessage = "PDF notes converted to Markdown successfully.",
                         alertIsSuccess = true
                     )
                 }

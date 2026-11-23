@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -22,6 +23,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,6 +49,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,7 +71,7 @@ import com.example.data.local.LectureEntity
 import com.example.ui.components.DeleteConfirmDialog
 import com.example.ui.components.FolderSortOrder
 import com.example.ui.components.QuizzMeHeader
-import com.example.ui.components.htmlToPlainText
+import com.example.ui.components.markdownToPlainText
 import com.example.ui.theme.LocalQuizzMeColors
 import com.example.ui.theme.subjectAccentColor
 import com.example.ui.viewmodel.LessonsViewModel
@@ -76,7 +81,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun LessonsScreen(
     viewModel: LessonsViewModel,
-    onOpenDrawer: () -> Unit,
+    widthSizeClass: WindowWidthSizeClass,
+    onOpenDrawer: (() -> Unit)?,
     onAddNotesClick: () -> Unit,
     onOpenLesson: (lectureId: String, initialTab: ReaderTab) -> Unit,
     modifier: Modifier = Modifier
@@ -86,6 +92,7 @@ fun LessonsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val isTablet = widthSizeClass != WindowWidthSizeClass.Compact
 
     var deleteTargetId by remember { mutableStateOf<String?>(null) }
 
@@ -106,14 +113,14 @@ fun LessonsScreen(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .widthIn(max = 680.dp)
+                    .widthIn(max = if (isTablet) 1280.dp else 680.dp)
                     .fillMaxWidth()
             ) {
                 // Search Bar + Sort Pill
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                        .padding(horizontal = if (isTablet) 24.dp else 20.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -173,7 +180,7 @@ fun LessonsScreen(
                             .testTag("lessons_sort_toggle")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -196,13 +203,14 @@ fun LessonsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
+                        .padding(horizontal = if (isTablet) 24.dp else 20.dp)
                         .padding(bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Surface(
-                        onClick = onOpenDrawer,
+                        onClick = { onOpenDrawer?.invoke() },
+                        enabled = onOpenDrawer != null,
                         shape = RoundedCornerShape(10.dp),
                         color = if (uiState.selectedTerm != null) ext.accentSoft else ext.card,
                         border = BorderStroke(
@@ -265,6 +273,14 @@ fun LessonsScreen(
                             }
                         }
                     }
+
+                    Spacer(Modifier.weight(1f))
+
+                    Text(
+                        text = "${uiState.filteredLessons.size} module(s)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ext.subtext
+                    )
                 }
 
                 if (uiState.filteredLessons.isEmpty()) {
@@ -291,6 +307,32 @@ fun LessonsScreen(
                             color = ext.subtext,
                             textAlign = TextAlign.Center
                         )
+                    }
+                } else if (isTablet) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 300.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        items(uiState.filteredLessons, key = { it.id }) { lecture ->
+                            LessonModuleCard(
+                                lecture = lecture,
+                                onOpenNotes = { onOpenLesson(lecture.id, ReaderTab.NOTES) },
+                                onQuickQuiz = { onOpenLesson(lecture.id, ReaderTab.QUIZ) },
+                                onShare = { shareLessonContent(context, lecture) },
+                                onCopy = {
+                                    copyLessonToClipboard(context, lecture)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Copied ${lecture.lesson} to clipboard")
+                                    }
+                                },
+                                onDelete = { deleteTargetId = lecture.id }
+                            )
+                        }
                     }
                 } else {
                     LazyColumn(
@@ -398,7 +440,9 @@ private fun LessonModuleCard(
                     Text(
                         text = lecture.subject,
                         style = MaterialTheme.typography.bodySmall,
-                        color = ext.subtext
+                        color = ext.subtext,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(text = "|", style = MaterialTheme.typography.bodySmall, color = ext.subtext)
                     Text(
@@ -408,7 +452,9 @@ private fun LessonModuleCard(
                             "Term ${lecture.term}"
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = ext.subtext
+                        color = ext.subtext,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -486,12 +532,12 @@ private fun LessonModuleCard(
 
 fun copyLessonToClipboard(context: Context, lecture: LectureEntity) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    val readable = htmlToPlainText(lecture.markdownContent).ifBlank { lecture.markdownContent }
+    val readable = markdownToPlainText(lecture.markdownContent).ifBlank { lecture.markdownContent }
     clipboard.setPrimaryClip(ClipData.newPlainText(lecture.lesson, readable))
 }
 
 fun shareLessonContent(context: Context, lecture: LectureEntity) {
-    val readable = htmlToPlainText(lecture.markdownContent).ifBlank { lecture.markdownContent }
+    val readable = markdownToPlainText(lecture.markdownContent).ifBlank { lecture.markdownContent }
     val sendIntent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_SUBJECT, "${lecture.lesson} (${lecture.subject})")

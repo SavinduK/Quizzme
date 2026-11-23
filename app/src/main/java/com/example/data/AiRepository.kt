@@ -32,12 +32,30 @@ import java.net.URL
 
 private const val TAG = "AiRepository"
 private const val GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-private const val AI_TIMEOUT_MS = 60_000L
+private const val AI_TIMEOUT_MS = 300_000L
+private const val AI_CONNECT_TIMEOUT_MS = 30_000
+private const val AI_READ_TIMEOUT_MS = 300_000
 private const val MAX_INLINE_BYTES = 18 * 1024 * 1024
 
 class AiRepository(
     private val settingsRepository: SettingsRepository
 ) {
+    companion object {
+        const val PDF_TO_MARKDOWN_PROMPT =
+            "Extract and structure all core study and subject-related information found inside this document. " +
+                "Automatically fix any clear typos or errors, and add helpful clarifications where concepts need context. " +
+                "Format the entire output as clean, well-structured GitHub-Flavored Markdown using headings (#, ##, ###), " +
+                "bullet and numbered lists, **bold** key terms, *italics*, > blockquotes for clinical/exam pearls, " +
+                "Markdown tables where comparisons help, and fenced code blocks where appropriate. " +
+                "Output raw Markdown directly—do NOT include HTML tags and do NOT wrap the whole response in a ```markdown code fence."
+
+        const val PAST_PAPER_CONVERT_PROMPT =
+            "Analyze the provided past paper content and classify each question into JSON format under {\"questions\": [...]}. " +
+                "Supported types: \"MCQ\" (question, 5 options, exact matching correct_answer, explanation), " +
+                "\"TF\" (question stem, 5 statements, 5 boolean answers, explanation), " +
+                "\"SA\" (question, correct_answer, explanation), " +
+                "\"SEQ\" (question, sub_questions [{sub_question, marks, answer_key}], model_answer)."
+    }
 
     private suspend fun requireCredentials(): Pair<String, String> {
         val settings = settingsRepository.getSettingsOnce()
@@ -70,14 +88,7 @@ class AiRepository(
                             })
                         })
                         add(buildJsonObject {
-                            put(
-                                "text",
-                                "Extract and structure all core study and subject-related information found inside this document. " +
-                                    "Automatically fix any clear typos or errors, and add helpful clarifications where concepts need context. " +
-                                    "Format the entire output as clean, well-structured semantic HTML using tags such as " +
-                                    "<h1>, <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <blockquote>, <table>, <thead>, <tbody>, <tr>, <th>, <td>, <code>, <pre>, and <hr>. " +
-                                    "Output raw HTML fragment content directly—do NOT use Markdown, do NOT include <html>/<head>/<body> wrapper tags, and do NOT wrap in code fences."
-                            )
+                            put("text", PDF_TO_MARKDOWN_PROMPT)
                         })
                     })
                 })
@@ -87,7 +98,7 @@ class AiRepository(
         return try {
             withTimeout(AI_TIMEOUT_MS) {
                 val rawText = executeGenerateContent(apiKey, modelId, payload.toString())
-                val cleaned = cleanHtmlOutput(rawText)
+                val cleaned = cleanMarkdownOutput(rawText)
                 if (cleaned.isBlank()) {
                     throw IllegalStateException("AI engine returned an empty extraction.")
                 }
@@ -95,23 +106,24 @@ class AiRepository(
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "PDF extraction timed out", e)
-            throw IllegalStateException("PDF extraction timed out after 60 seconds. Please try again.")
+            throw IllegalStateException("PDF extraction timed out after 5 minutes. Try a lighter model or split the PDF.")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "PDF extraction failed", e)
-            throw IllegalStateException(e.localizedMessage ?: "Failed to extract text from PDF.")
+            throw IllegalStateException(e.localizedMessage ?: "Failed to extract notes from PDF.")
         }
     }
 
     fun generateSummaryStream(sourceText: String): Flow<String> = flow {
         val (apiKey, modelId) = requireCredentials()
         val prompt =
-            "You are a world-class academic summarizer. Read the following source notes (which may be HTML or plain text) " +
-                "and provide a comprehensive, clear, and highly structured summary formatted as clean semantic HTML. " +
-                "Organize the summary into logical sections starting with <h2> headings, followed by focused <p> paragraphs, " +
-                "<ul> or <ol> takeaway lists, <strong> key definitions, <table> comparisons when useful, and <blockquote> clinical/exam pearls. " +
-                "Output raw HTML fragment content directly—do NOT use Markdown, do NOT include <html>/<head>/<body> wrapper tags, and do NOT wrap in code fences.\n\nSource Notes:\n$sourceText"
+            "You are a world-class academic summarizer. Read the following source notes " +
+                "and provide a comprehensive, clear, and highly structured summary formatted as clean GitHub-Flavored Markdown. " +
+                "Organize the summary into logical sections starting with ## headings, followed by concise paragraphs, " +
+                "bullet or numbered takeaway lists, **bold** key definitions, Markdown tables for comparisons when useful, " +
+                "and > blockquotes for clinical/exam pearls. " +
+                "Output raw Markdown directly—do NOT include HTML tags and do NOT wrap the entire response in a ```markdown fence.\n\nSource Notes:\n$sourceText"
 
         val payload = buildJsonObject {
             put("contents", buildJsonArray {
@@ -130,8 +142,8 @@ class AiRepository(
                 val url = URL("$GEMINI_API_BASE/$modelId:streamGenerateContent?alt=sse")
                 connection = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
-                    connectTimeout = 20_000
-                    readTimeout = 60_000
+                    connectTimeout = AI_CONNECT_TIMEOUT_MS
+                    readTimeout = AI_READ_TIMEOUT_MS
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                     setRequestProperty("Accept", "text/event-stream")
@@ -159,7 +171,7 @@ class AiRepository(
                         val chunkText = extractCandidateText(jsonPart)
                         if (chunkText.isNotEmpty()) {
                             accumulated.append(chunkText)
-                            val cleaned = cleanHtmlOutput(accumulated.toString())
+                            val cleaned = cleanMarkdownOutput(accumulated.toString())
                             if (cleaned.isNotEmpty()) {
                                 emit(cleaned)
                             }
@@ -172,7 +184,7 @@ class AiRepository(
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Summary generation timed out", e)
-            throw IllegalStateException("Summary generation timed out. Please try again.")
+            throw IllegalStateException("Summary generation timed out after 5 minutes. Please try again.")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -240,7 +252,7 @@ class AiRepository(
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Quiz generation timed out", e)
-            throw IllegalStateException("Quiz generation timed out after 60 seconds. Please try again.")
+            throw IllegalStateException("Quiz generation timed out after 5 minutes. Please try again.")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -288,7 +300,7 @@ class AiRepository(
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Past paper parsing timed out", e)
-            throw IllegalStateException("Past paper parsing timed out after 60 seconds. Please try again.")
+            throw IllegalStateException("Past paper parsing timed out after 5 minutes. Please try again.")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -353,7 +365,7 @@ class AiRepository(
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Past paper image analysis timed out", e)
-            throw IllegalStateException("Past paper image analysis timed out after 60 seconds. Please try again.")
+            throw IllegalStateException("Past paper image analysis timed out after 5 minutes. Please try again.")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -372,8 +384,8 @@ class AiRepository(
             val url = URL("$GEMINI_API_BASE/$modelId:generateContent")
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
-                connectTimeout = 20_000
-                readTimeout = 60_000
+                connectTimeout = AI_CONNECT_TIMEOUT_MS
+                readTimeout = AI_READ_TIMEOUT_MS
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                 setRequestProperty("x-goog-api-key", apiKey)
@@ -449,23 +461,21 @@ class AiRepository(
             "clinical/academic framing, phrasing, and high-yield tested topics—generate fresh, non-duplicate questions aligned with these past paper patterns):\n$formatted"
     }
 
-    private fun cleanHtmlOutput(raw: String): String {
+    private fun cleanMarkdownOutput(raw: String): String {
         var cleaned = raw.trim()
         if (cleaned.startsWith("```")) {
-            cleaned = cleaned.replace(Regex("^```(?:html|xml)?\\s*", RegexOption.IGNORE_CASE), "")
-                .replace(Regex("\\s*```$"), "")
-                .trim()
+            val firstNewline = cleaned.indexOf('\n')
+            if (firstNewline > 0) {
+                val fenceTag = cleaned.substring(3, firstNewline).trim().lowercase()
+                if (fenceTag == "markdown" || fenceTag == "md" || fenceTag == "text") {
+                    cleaned = cleaned.substring(firstNewline + 1)
+                    if (cleaned.trimEnd().endsWith("```")) {
+                        cleaned = cleaned.trimEnd().removeSuffix("```")
+                    }
+                }
+            }
         }
-        val bodyMatch = Regex("<body\\b[^>]*>([\\s\\S]*?)</body>", RegexOption.IGNORE_CASE).find(cleaned)
-        if (bodyMatch != null) {
-            cleaned = bodyMatch.groupValues[1].trim()
-        } else {
-            cleaned = cleaned
-                .replace(Regex("<!DOCTYPE[^>]*>", RegexOption.IGNORE_CASE), "")
-                .replace(Regex("</?(?:html|head|body)\\b[^>]*>", RegexOption.IGNORE_CASE), "")
-                .trim()
-        }
-        return cleaned
+        return cleaned.trim()
     }
 
     private fun schemaForStyle(style: QuestionStyle): JsonObject {

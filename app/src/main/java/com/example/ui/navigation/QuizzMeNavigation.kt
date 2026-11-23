@@ -1,17 +1,25 @@
 package com.example.ui.navigation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.School
@@ -19,6 +27,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -34,9 +43,13 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -51,6 +64,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.example.data.QuizzMeRepository
 import com.example.ui.components.TermFolderDrawerContent
+import com.example.ui.components.TermFolderSidebar
 import com.example.ui.screens.AddNotesScreen
 import com.example.ui.screens.AddPastPaperScreen
 import com.example.ui.screens.HomeScreen
@@ -126,9 +140,10 @@ fun QuizzMeApp(
         isLessons ||
         currentDestination?.hasRoute<TrackerRoute>() == true ||
         currentDestination?.hasRoute<SettingsRoute>() == true
-    val drawerEnabled = isHome || isLessons
 
     val useNavRail = widthSizeClass != WindowWidthSizeClass.Compact
+    val showPermanentSidebar = widthSizeClass == WindowWidthSizeClass.Expanded && (isHome || isLessons)
+    val modalDrawerEnabled = !showPermanentSidebar && (isHome || isLessons)
 
     fun navigateTopLevel(route: Any) {
         navController.navigate(route) {
@@ -158,7 +173,7 @@ fun QuizzMeApp(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = drawerEnabled,
+        gesturesEnabled = modalDrawerEnabled,
         drawerContent = {
             if (isLessons) {
                 TermFolderDrawerContent(
@@ -264,36 +279,103 @@ fun QuizzMeApp(
                 if (isTopLevel && useNavRail) {
                     NavigationRail(
                         containerColor = ext.card,
+                        header = {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(top = 12.dp, bottom = 12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(ext.accent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AutoAwesome,
+                                        contentDescription = "QuizzMe",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "QuizzMe",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = ext.accent
+                                )
+                            }
+                        },
                         modifier = Modifier.statusBarsPadding()
                     ) {
-                        topLevelTabs.forEach { tab ->
-                            val selected = when (tab.route) {
-                                HomeRoute -> currentDestination?.hasRoute<HomeRoute>() == true
-                                LessonsRoute -> currentDestination?.hasRoute<LessonsRoute>() == true
-                                TrackerRoute -> currentDestination?.hasRoute<TrackerRoute>() == true
-                                SettingsRoute -> currentDestination?.hasRoute<SettingsRoute>() == true
-                                else -> false
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            topLevelTabs.forEach { tab ->
+                                val selected = when (tab.route) {
+                                    HomeRoute -> currentDestination?.hasRoute<HomeRoute>() == true
+                                    LessonsRoute -> currentDestination?.hasRoute<LessonsRoute>() == true
+                                    TrackerRoute -> currentDestination?.hasRoute<TrackerRoute>() == true
+                                    SettingsRoute -> currentDestination?.hasRoute<SettingsRoute>() == true
+                                    else -> false
+                                }
+                                NavigationRailItem(
+                                    selected = selected,
+                                    onClick = { navigateTopLevel(tab.route) },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                            contentDescription = tab.label
+                                        )
+                                    },
+                                    label = { Text(tab.label) },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = ext.accent,
+                                        selectedTextColor = ext.accent,
+                                        unselectedIconColor = ext.subtext,
+                                        unselectedTextColor = ext.subtext,
+                                        indicatorColor = ext.accentSoft
+                                    ),
+                                    modifier = Modifier.testTag(tab.tag)
+                                )
                             }
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = { navigateTopLevel(tab.route) },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.label
-                                    )
-                                },
-                                label = { Text(tab.label) },
-                                colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = ext.accent,
-                                    selectedTextColor = ext.accent,
-                                    unselectedIconColor = ext.subtext,
-                                    unselectedTextColor = ext.subtext,
-                                    indicatorColor = ext.accentSoft
-                                ),
-                                modifier = Modifier.testTag(tab.tag)
-                            )
                         }
+                    }
+                    VerticalDivider(color = ext.border)
+                }
+
+                if (showPermanentSidebar) {
+                    if (isLessons) {
+                        TermFolderSidebar(
+                            headerTitle = "Lecture Folders",
+                            items = lessonsState.drawerItems,
+                            selectedTerm = lessonsState.selectedTerm,
+                            selectedItemId = null,
+                            sortOrder = lessonsState.sortOrder,
+                            onSortOrderChange = lessonsViewModel::setSortOrder,
+                            onSelectAll = lessonsViewModel::resetFilters,
+                            onSelectTerm = lessonsViewModel::setSelectedTerm,
+                            onSelectItem = { item ->
+                                navController.navigate(
+                                    LessonReaderRoute(
+                                        lectureId = item.id,
+                                        initialTab = ReaderTab.NOTES.name
+                                    )
+                                )
+                            }
+                        )
+                    } else {
+                        TermFolderSidebar(
+                            headerTitle = "Quiz Folders",
+                            items = homeState.drawerItems,
+                            selectedTerm = homeState.selectedTerm,
+                            selectedItemId = homeState.selectedDrawerItemId,
+                            sortOrder = homeState.sortOrder,
+                            onSortOrderChange = homeViewModel::setSortOrder,
+                            onSelectAll = homeViewModel::clearDrawerSelection,
+                            onSelectTerm = homeViewModel::setSelectedTerm,
+                            onSelectItem = homeViewModel::selectDrawerItem
+                        )
                     }
                     VerticalDivider(color = ext.border)
                 }
@@ -306,7 +388,8 @@ fun QuizzMeApp(
                     composable<HomeRoute> {
                         HomeScreen(
                             viewModel = homeViewModel,
-                            onOpenDrawer = { scope.launch { drawerState.open() } },
+                            widthSizeClass = widthSizeClass,
+                            onOpenDrawer = if (showPermanentSidebar) null else ({ scope.launch { drawerState.open() } }),
                             onNavigateToAddPaper = { navController.navigate(AddPaperRoute) },
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -315,7 +398,8 @@ fun QuizzMeApp(
                     composable<LessonsRoute> {
                         LessonsScreen(
                             viewModel = lessonsViewModel,
-                            onOpenDrawer = { scope.launch { drawerState.open() } },
+                            widthSizeClass = widthSizeClass,
+                            onOpenDrawer = if (showPermanentSidebar) null else ({ scope.launch { drawerState.open() } }),
                             onAddNotesClick = { navController.navigate(AddNotesRoute) },
                             onOpenLesson = { lectureId, initialTab ->
                                 navController.navigate(
@@ -332,6 +416,7 @@ fun QuizzMeApp(
                     composable<TrackerRoute> {
                         TrackerScreen(
                             viewModel = trackerViewModel,
+                            widthSizeClass = widthSizeClass,
                             modifier = Modifier.statusBarsPadding()
                         )
                     }
@@ -339,6 +424,7 @@ fun QuizzMeApp(
                     composable<SettingsRoute> {
                         SettingsScreen(
                             viewModel = settingsViewModel,
+                            widthSizeClass = widthSizeClass,
                             modifier = Modifier.statusBarsPadding()
                         )
                     }
@@ -349,6 +435,7 @@ fun QuizzMeApp(
                         )
                         AddNotesScreen(
                             viewModel = addVm,
+                            widthSizeClass = widthSizeClass,
                             onBack = { navController.popBackStack() }
                         )
                     }
@@ -359,6 +446,7 @@ fun QuizzMeApp(
                         )
                         AddPastPaperScreen(
                             viewModel = addVm,
+                            widthSizeClass = widthSizeClass,
                             onBack = { navController.popBackStack() }
                         )
                     }
@@ -379,6 +467,7 @@ fun QuizzMeApp(
                         )
                         LessonReaderScreen(
                             viewModel = readerVm,
+                            widthSizeClass = widthSizeClass,
                             onBack = { navController.popBackStack() }
                         )
                     }

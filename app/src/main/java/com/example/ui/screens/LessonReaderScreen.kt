@@ -1,15 +1,18 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,6 +60,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,24 +70,24 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.AiRepository
 import com.example.ui.components.DeleteConfirmDialog
-import com.example.ui.components.HtmlContent
+import com.example.ui.components.MarkdownContent
 import com.example.ui.components.QuizCard
 import com.example.ui.components.QuizResultsCard
-import com.example.ui.components.htmlToEditablePlainText
-import com.example.ui.components.parseHtmlToSummaryCards
+import com.example.ui.components.SummaryCardBlock
+import com.example.ui.components.markdownToEditablePlainText
+import com.example.ui.components.parseMarkdownToSummaryCards
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalQuizzMeColors
 import com.example.ui.viewmodel.LessonReaderViewModel
@@ -93,6 +97,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun LessonReaderScreen(
     viewModel: LessonReaderViewModel,
+    widthSizeClass: WindowWidthSizeClass,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -101,6 +106,7 @@ fun LessonReaderScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val isTablet = widthSizeClass != WindowWidthSizeClass.Compact
 
     var showEditModal by remember { mutableStateOf(false) }
     var editableText by remember { mutableStateOf("") }
@@ -128,7 +134,7 @@ fun LessonReaderScreen(
             if (uiState.activeTab == ReaderTab.NOTES && uiState.lecture != null) {
                 FloatingActionButton(
                     onClick = {
-                        editableText = htmlToEditablePlainText(uiState.lecture?.markdownContent.orEmpty())
+                        editableText = markdownToEditablePlainText(uiState.lecture?.markdownContent.orEmpty())
                         showEditModal = true
                     },
                     containerColor = ext.accent,
@@ -212,14 +218,14 @@ fun LessonReaderScreen(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .widthIn(max = 680.dp)
+                    .widthIn(max = if (isTablet) 1140.dp else 680.dp)
                     .fillMaxWidth()
             ) {
                 // Segmented 4-Tab Bar
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = if (isTablet) 24.dp else 16.dp, vertical = 12.dp),
                     shape = RoundedCornerShape(14.dp),
                     color = ext.accentSoft
                 ) {
@@ -289,92 +295,109 @@ fun LessonReaderScreen(
                             .weight(1f)
                             .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 20.dp)
-                            .padding(bottom = 96.dp)
+                            .padding(horizontal = if (isTablet) 28.dp else 20.dp)
+                            .padding(bottom = 96.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         when (uiState.activeTab) {
                             ReaderTab.NOTES -> {
-                                HtmlContent(
-                                    html = uiState.lecture!!.markdownContent,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
+                                Surface(
+                                    modifier = Modifier
+                                        .widthIn(max = 880.dp)
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp),
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = if (isTablet) ext.card else Color.Transparent,
+                                    border = if (isTablet) BorderStroke(1.dp, ext.border) else null
+                                ) {
+                                    MarkdownContent(
+                                        markdown = uiState.lecture!!.markdownContent,
+                                        modifier = Modifier.padding(if (isTablet) 24.dp else 0.dp)
+                                    )
+                                }
                             }
 
                             ReaderTab.QUIZ -> {
-                                when {
-                                    uiState.loadingQuiz -> {
-                                        CenteredLoadingState("Compiling Questions & Answer Keys...")
-                                    }
-                                    uiState.quizError != null && uiState.quizSession.deck.isEmpty() -> {
-                                        ErrorRetryCard(
-                                            message = uiState.quizError!!,
-                                            onRetry = { viewModel.launchQuiz(forceRegenerate = true) }
-                                        )
-                                    }
-                                    uiState.quizSession.deck.isNotEmpty() -> {
-                                        AnimatedVisibility(visible = uiState.quizNotice != null) {
-                                            Surface(
+                                Column(
+                                    modifier = Modifier
+                                        .widthIn(max = 840.dp)
+                                        .fillMaxWidth()
+                                ) {
+                                    when {
+                                        uiState.loadingQuiz -> {
+                                            CenteredLoadingState("Compiling Questions & Answer Keys...")
+                                        }
+                                        uiState.quizError != null && uiState.quizSession.deck.isEmpty() -> {
+                                            ErrorRetryCard(
+                                                message = uiState.quizError!!,
+                                                onRetry = { viewModel.launchQuiz(forceRegenerate = true) }
+                                            )
+                                        }
+                                        uiState.quizSession.deck.isNotEmpty() -> {
+                                            AnimatedVisibility(visible = uiState.quizNotice != null) {
+                                                Surface(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(bottom = 10.dp),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = ext.accentSoft,
+                                                    border = BorderStroke(1.dp, ext.accent)
+                                                ) {
+                                                    Text(
+                                                        text = uiState.quizNotice.orEmpty(),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = ext.accent,
+                                                        modifier = Modifier.padding(12.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(bottom = 10.dp),
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = ext.accentSoft,
-                                                border = BorderStroke(1.dp, ext.accent)
+                                                    .padding(bottom = 6.dp),
+                                                horizontalArrangement = Arrangement.End
                                             ) {
-                                                Text(
-                                                    text = uiState.quizNotice.orEmpty(),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = ext.accent,
-                                                    modifier = Modifier.padding(12.dp)
-                                                )
+                                                TextButton(
+                                                    onClick = { viewModel.launchQuiz(forceRegenerate = true) },
+                                                    modifier = Modifier.testTag("regenerate_quiz_button")
+                                                ) {
+                                                    Icon(
+                                                        Icons.Rounded.Refresh,
+                                                        contentDescription = null,
+                                                        tint = ext.accent,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text("Regenerate Quiz", color = ext.accent)
+                                                }
                                             }
-                                        }
 
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(bottom = 6.dp),
-                                            horizontalArrangement = Arrangement.End
-                                        ) {
-                                            TextButton(
-                                                onClick = { viewModel.launchQuiz(forceRegenerate = true) },
-                                                modifier = Modifier.testTag("regenerate_quiz_button")
-                                            ) {
-                                                Icon(
-                                                    Icons.Rounded.Refresh,
-                                                    contentDescription = null,
-                                                    tint = ext.accent,
-                                                    modifier = Modifier.size(16.dp)
+                                            if (uiState.quizSession.quizFinished) {
+                                                QuizResultsCard(
+                                                    runningScore = uiState.quizSession.runningScore,
+                                                    maxPossibleScore = uiState.quizSession.maxPossibleScore(uiState.quizStyle),
+                                                    actionLabel = "Generate New Quiz",
+                                                    onActionClick = { viewModel.launchQuiz(forceRegenerate = true) }
                                                 )
-                                                Spacer(Modifier.width(6.dp))
-                                                Text("Regenerate Quiz", color = ext.accent)
-                                            }
-                                        }
-
-                                        if (uiState.quizSession.quizFinished) {
-                                            QuizResultsCard(
-                                                runningScore = uiState.quizSession.runningScore,
-                                                maxPossibleScore = uiState.quizSession.maxPossibleScore(uiState.quizStyle),
-                                                actionLabel = "Generate New Quiz",
-                                                onActionClick = { viewModel.launchQuiz(forceRegenerate = true) }
-                                            )
-                                        } else {
-                                            uiState.quizSession.currentQuestion?.let { q ->
-                                                QuizCard(
-                                                    question = q,
-                                                    sessionState = uiState.quizSession,
-                                                    questionStyle = uiState.quizStyle,
-                                                    onMcqOptionClick = viewModel::onMcqOptionSelected,
-                                                    onTfToggle = viewModel::onTfToggle,
-                                                    onEvaluateTf = viewModel::onEvaluateTf,
-                                                    onSaInputChange = viewModel::onSaInputChange,
-                                                    onRevealSaAnswer = viewModel::onRevealSaAnswer,
-                                                    onGradeSa = viewModel::onGradeSa,
-                                                    onSeqNotesChange = viewModel::onSeqNotesChange,
-                                                    onToggleSeqAnswer = viewModel::onToggleSeqAnswer,
-                                                    onGradeSeq = viewModel::onGradeSeq,
-                                                    onNextQuestion = viewModel::onNextQuestion
-                                                )
+                                            } else {
+                                                uiState.quizSession.currentQuestion?.let { q ->
+                                                    QuizCard(
+                                                        question = q,
+                                                        sessionState = uiState.quizSession,
+                                                        questionStyle = uiState.quizStyle,
+                                                        onMcqOptionClick = viewModel::onMcqOptionSelected,
+                                                        onTfToggle = viewModel::onTfToggle,
+                                                        onEvaluateTf = viewModel::onEvaluateTf,
+                                                        onSaInputChange = viewModel::onSaInputChange,
+                                                        onRevealSaAnswer = viewModel::onRevealSaAnswer,
+                                                        onGradeSa = viewModel::onGradeSa,
+                                                        onSeqNotesChange = viewModel::onSeqNotesChange,
+                                                        onToggleSeqAnswer = viewModel::onToggleSeqAnswer,
+                                                        onGradeSeq = viewModel::onGradeSeq,
+                                                        onNextQuestion = viewModel::onNextQuestion
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -413,29 +436,42 @@ fun LessonReaderScreen(
                                         }
 
                                         val blocks = remember(uiState.summaryText) {
-                                            parseHtmlToSummaryCards(uiState.summaryText)
+                                            parseMarkdownToSummaryCards(uiState.summaryText)
                                         }
-                                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                            blocks.forEach { block ->
-                                                Surface(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = RoundedCornerShape(16.dp),
-                                                    color = ext.card,
-                                                    border = BorderStroke(1.dp, ext.border),
-                                                    tonalElevation = 1.dp
-                                                ) {
-                                                    Column(modifier = Modifier.padding(16.dp)) {
-                                                        Text(
-                                                            text = block.title,
-                                                            style = MaterialTheme.typography.titleMedium,
-                                                            color = ext.accent
-                                                        )
-                                                        HorizontalDivider(
-                                                            color = ext.border,
-                                                            modifier = Modifier.padding(vertical = 8.dp)
-                                                        )
-                                                        HtmlContent(html = block.content)
+                                        if (isTablet && blocks.size > 1) {
+                                            val chunked = blocks.chunked(2)
+                                            Column(
+                                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                chunked.forEach { pair ->
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(IntrinsicSize.Min),
+                                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                                    ) {
+                                                        pair.forEach { block ->
+                                                            SummaryBlockCard(
+                                                                block = block,
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .fillMaxHeight()
+                                                            )
+                                                        }
+                                                        if (pair.size == 1) {
+                                                            Spacer(Modifier.weight(1f))
+                                                        }
                                                     }
+                                                }
+                                            }
+                                        } else {
+                                            Column(
+                                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                blocks.forEach { block ->
+                                                    SummaryBlockCard(block = block, modifier = Modifier.fillMaxWidth())
                                                 }
                                             }
                                         }
@@ -444,148 +480,185 @@ fun LessonReaderScreen(
                             }
 
                             ReaderTab.PAST_PAPER -> {
-                                Row(
+                                Column(
                                     modifier = Modifier
+                                        .widthIn(max = 840.dp)
                                         .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = "Past Paper Questions",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = ext.title
-                                    )
-
-                                    if (uiState.pastPaperSession.deck.isNotEmpty()) {
-                                        Box {
-                                            IconButton(
-                                                onClick = { showPastPaperMenu = true },
-                                                modifier = Modifier.testTag("past_paper_menu_button")
-                                            ) {
-                                                Icon(
-                                                    Icons.Rounded.MoreVert,
-                                                    contentDescription = "Past paper options",
-                                                    tint = ext.title
-                                                )
-                                            }
-                                            DropdownMenu(
-                                                expanded = showPastPaperMenu,
-                                                onDismissRequest = { showPastPaperMenu = false },
-                                                containerColor = ext.card
-                                            ) {
-                                                DropdownMenuItem(
-                                                    text = { Text("Delete Past Paper", color = ext.danger) },
-                                                    leadingIcon = {
-                                                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = ext.danger)
-                                                    },
-                                                    onClick = {
-                                                        showPastPaperMenu = false
-                                                        showDeletePaperConfirm = true
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if (uiState.pastPaperSession.deck.isEmpty()) {
-                                    OutlinedTextField(
-                                        value = uiState.pastPaperInputText,
-                                        onValueChange = viewModel::updatePastPaperInput,
-                                        placeholder = {
-                                            Text("Paste JSON or plain text here...", color = ext.subtext)
-                                        },
-                                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                            fontFamily = JetBrainsMonoFontFamily,
-                                            color = ext.title
-                                        ),
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(min = 180.dp)
-                                            .testTag("reader_past_paper_input"),
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = ext.accent,
-                                            unfocusedBorderColor = ext.border,
-                                            focusedContainerColor = ext.card,
-                                            unfocusedContainerColor = ext.card
-                                        )
-                                    )
-
-                                    if (uiState.pastPaperError != null) {
+                                            .padding(vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Text(
-                                            text = uiState.pastPaperError!!,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = ext.danger,
-                                            modifier = Modifier.padding(top = 8.dp)
+                                            text = "Past Paper Questions",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            color = ext.title
                                         )
-                                    }
 
-                                    Spacer(Modifier.height(14.dp))
-
-                                    if (uiState.processingPastPaper) {
-                                        CenteredLoadingState("Detecting & Structuring Past Paper...")
-                                    } else {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Button(
-                                                onClick = viewModel::saveDirectJsonPastPaper,
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(48.dp)
-                                                    .testTag("save_direct_json_button"),
-                                                shape = RoundedCornerShape(12.dp),
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = ext.accent,
-                                                    contentColor = Color.White
-                                                )
-                                            ) {
-                                                Text("Save JSON Directly", style = MaterialTheme.typography.labelMedium)
-                                            }
-                                            Button(
-                                                onClick = viewModel::convertPlaintextPastPaper,
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(48.dp)
-                                                    .testTag("convert_plaintext_ai_button"),
-                                                shape = RoundedCornerShape(12.dp),
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = ext.accent,
-                                                    contentColor = Color.White
-                                                )
-                                            ) {
-                                                Text("Convert via AI", style = MaterialTheme.typography.labelMedium)
+                                        if (uiState.pastPaperSession.deck.isNotEmpty()) {
+                                            Box {
+                                                IconButton(
+                                                    onClick = { showPastPaperMenu = true },
+                                                    modifier = Modifier.testTag("past_paper_menu_button")
+                                                ) {
+                                                    Icon(
+                                                        Icons.Rounded.MoreVert,
+                                                        contentDescription = "Past paper options",
+                                                        tint = ext.title
+                                                    )
+                                                }
+                                                DropdownMenu(
+                                                    expanded = showPastPaperMenu,
+                                                    onDismissRequest = { showPastPaperMenu = false },
+                                                    containerColor = ext.card
+                                                ) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Delete Past Paper", color = ext.danger) },
+                                                        leadingIcon = {
+                                                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = ext.danger)
+                                                        },
+                                                        onClick = {
+                                                            showPastPaperMenu = false
+                                                            showDeletePaperConfirm = true
+                                                        }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
-                                } else {
-                                    if (uiState.pastPaperSession.quizFinished) {
-                                        QuizResultsCard(
-                                            runningScore = uiState.pastPaperSession.runningScore,
-                                            maxPossibleScore = uiState.pastPaperSession.maxPossibleScore(uiState.pastPaperStyle),
-                                            actionLabel = "Restart Past Paper",
-                                            onActionClick = viewModel::restartPastPaperSession
-                                        )
-                                    } else {
-                                        uiState.pastPaperSession.currentQuestion?.let { q ->
-                                            QuizCard(
-                                                question = q,
-                                                sessionState = uiState.pastPaperSession,
-                                                questionStyle = uiState.pastPaperStyle,
-                                                onMcqOptionClick = viewModel::onMcqOptionSelected,
-                                                onTfToggle = viewModel::onTfToggle,
-                                                onEvaluateTf = viewModel::onEvaluateTf,
-                                                onSaInputChange = viewModel::onSaInputChange,
-                                                onRevealSaAnswer = viewModel::onRevealSaAnswer,
-                                                onGradeSa = viewModel::onGradeSa,
-                                                onSeqNotesChange = viewModel::onSeqNotesChange,
-                                                onToggleSeqAnswer = viewModel::onToggleSeqAnswer,
-                                                onGradeSeq = viewModel::onGradeSeq,
-                                                onNextQuestion = viewModel::onNextQuestion
+
+                                    if (uiState.pastPaperSession.deck.isEmpty()) {
+                                        OutlinedTextField(
+                                            value = uiState.pastPaperInputText,
+                                            onValueChange = viewModel::updatePastPaperInput,
+                                            placeholder = {
+                                                Text("Paste JSON or plain text here...", color = ext.subtext)
+                                            },
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                fontFamily = JetBrainsMonoFontFamily,
+                                                color = ext.title
+                                            ),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 180.dp)
+                                                .testTag("reader_past_paper_input"),
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = ext.accent,
+                                                unfocusedBorderColor = ext.border,
+                                                focusedContainerColor = ext.card,
+                                                unfocusedContainerColor = ext.card
                                             )
+                                        )
+
+                                        if (uiState.pastPaperError != null) {
+                                            Text(
+                                                text = uiState.pastPaperError!!,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = ext.danger,
+                                                modifier = Modifier.padding(top = 8.dp)
+                                            )
+                                        }
+
+                                        Spacer(Modifier.height(14.dp))
+
+                                        if (uiState.processingPastPaper) {
+                                            CenteredLoadingState("Detecting & Structuring Past Paper...")
+                                        } else {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Button(
+                                                    onClick = viewModel::saveDirectJsonPastPaper,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(48.dp)
+                                                        .testTag("save_direct_json_button"),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = ext.accent,
+                                                        contentColor = Color.White
+                                                    )
+                                                ) {
+                                                    Text("Save JSON Directly", style = MaterialTheme.typography.labelMedium)
+                                                }
+                                                Button(
+                                                    onClick = viewModel::convertPlaintextPastPaper,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(48.dp)
+                                                        .testTag("convert_plaintext_ai_button"),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = ext.accent,
+                                                        contentColor = Color.White
+                                                    )
+                                                ) {
+                                                    Text("Convert via AI", style = MaterialTheme.typography.labelMedium)
+                                                }
+                                                Surface(
+                                                    onClick = {
+                                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                        clipboard.setPrimaryClip(
+                                                            ClipData.newPlainText(
+                                                                "QuizzMe Past Paper Prompt",
+                                                                AiRepository.PAST_PAPER_CONVERT_PROMPT
+                                                            )
+                                                        )
+                                                        scope.launch {
+                                                            snackbarHostState.showSnackbar("Converting prompt copied to clipboard")
+                                                        }
+                                                    },
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = ext.card,
+                                                    border = BorderStroke(1.dp, ext.border),
+                                                    modifier = Modifier
+                                                        .minimumInteractiveComponentSize()
+                                                        .size(48.dp)
+                                                        .testTag("copy_paper_convert_prompt_button")
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Rounded.ContentCopy,
+                                                            contentDescription = "Copy converting prompt",
+                                                            tint = ext.accent,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        if (uiState.pastPaperSession.quizFinished) {
+                                            QuizResultsCard(
+                                                runningScore = uiState.pastPaperSession.runningScore,
+                                                maxPossibleScore = uiState.pastPaperSession.maxPossibleScore(uiState.pastPaperStyle),
+                                                actionLabel = "Restart Past Paper",
+                                                onActionClick = viewModel::restartPastPaperSession
+                                            )
+                                        } else {
+                                            uiState.pastPaperSession.currentQuestion?.let { q ->
+                                                QuizCard(
+                                                    question = q,
+                                                    sessionState = uiState.pastPaperSession,
+                                                    questionStyle = uiState.pastPaperStyle,
+                                                    onMcqOptionClick = viewModel::onMcqOptionSelected,
+                                                    onTfToggle = viewModel::onTfToggle,
+                                                    onEvaluateTf = viewModel::onEvaluateTf,
+                                                    onSaInputChange = viewModel::onSaInputChange,
+                                                    onRevealSaAnswer = viewModel::onRevealSaAnswer,
+                                                    onGradeSa = viewModel::onGradeSa,
+                                                    onSeqNotesChange = viewModel::onSeqNotesChange,
+                                                    onToggleSeqAnswer = viewModel::onToggleSeqAnswer,
+                                                    onGradeSeq = viewModel::onGradeSeq,
+                                                    onNextQuestion = viewModel::onNextQuestion
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -597,18 +670,27 @@ fun LessonReaderScreen(
         }
     }
 
-    // Full-screen Markdown Notes Editor Dialog
+    // Markdown Notes Editor Dialog (tag-free, clean text)
     if (showEditModal) {
         Dialog(
             onDismissRequest = { showEditModal = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            properties = DialogProperties(usePlatformDefaultWidth = !isTablet)
         ) {
             Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding(),
-                color = ext.background
+                modifier = if (isTablet) {
+                    Modifier
+                        .widthIn(min = 640.dp, max = 900.dp)
+                        .fillMaxWidth()
+                        .heightIn(min = 520.dp, max = 760.dp)
+                } else {
+                    Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                },
+                shape = if (isTablet) RoundedCornerShape(24.dp) else RoundedCornerShape(0.dp),
+                color = ext.background,
+                border = if (isTablet) BorderStroke(1.dp, ext.border) else null
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(
@@ -647,7 +729,7 @@ fun LessonReaderScreen(
                     OutlinedTextField(
                         value = editableText,
                         onValueChange = { editableText = it },
-                        placeholder = { Text("Edit lesson notes text...", color = ext.subtext) },
+                        placeholder = { Text("Edit lesson Markdown notes...", color = ext.subtext) },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = ext.title
                         ),
@@ -676,6 +758,34 @@ fun LessonReaderScreen(
                 viewModel.deletePastPaper()
             }
         )
+    }
+}
+
+@Composable
+private fun SummaryBlockCard(
+    block: SummaryCardBlock,
+    modifier: Modifier = Modifier
+) {
+    val ext = LocalQuizzMeColors.current
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = ext.card,
+        border = BorderStroke(1.dp, ext.border),
+        tonalElevation = 1.dp
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Text(
+                text = block.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = ext.accent
+            )
+            HorizontalDivider(
+                color = ext.border,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+            MarkdownContent(markdown = block.content)
+        }
     }
 }
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -46,8 +47,10 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,18 +73,21 @@ import com.example.ui.components.DeleteConfirmDialog
 import com.example.ui.components.QuizzMeHeader
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalQuizzMeColors
+import com.example.ui.viewmodel.TrackerUiState
 import com.example.ui.viewmodel.TrackerViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackerScreen(
     viewModel: TrackerViewModel,
+    widthSizeClass: WindowWidthSizeClass,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val ext = LocalQuizzMeColors.current
     val snackbarHostState = remember { SnackbarHostState() }
     val calendarListState = rememberLazyListState(initialFirstVisibleItemIndex = 28)
+    val isTablet = widthSizeClass != WindowWidthSizeClass.Compact
 
     var showAddModal by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
@@ -108,166 +114,215 @@ fun TrackerScreen(
         ) {
             QuizzMeHeader(title = "Work Tracker")
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .widthIn(max = 680.dp)
-                    .fillMaxWidth()
-            ) {
-                // Horizontal 61-Day Calendar Strip
-                LazyRow(
-                    state = calendarListState,
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
+            if (isTablet) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .widthIn(max = 1280.dp)
+                        .fillMaxWidth()
                 ) {
-                    items(uiState.calendarDays, key = { it.dateStr }) { day ->
-                        val selected = day.dateStr == uiState.selectedDate
+                    // Left Calendar + Overview Pane
+                    Column(
+                        modifier = Modifier
+                            .weight(0.45f)
+                            .fillMaxHeight()
+                            .padding(20.dp)
+                    ) {
+                        Text(
+                            text = "SELECT DATE",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ext.accent
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        CalendarStripRow(
+                            uiState = uiState,
+                            calendarListState = calendarListState,
+                            onSelectDate = viewModel::selectDate
+                        )
+
+                        Spacer(Modifier.height(20.dp))
                         Surface(
-                            onClick = { viewModel.selectDate(day.dateStr) },
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (selected) ext.accent else ext.card,
-                            border = BorderStroke(1.dp, if (selected) ext.accent else ext.border),
-                            modifier = Modifier
-                                .size(width = 60.dp, height = 74.dp)
-                                .testTag("calendar_day_${day.dateStr}")
+                            shape = RoundedCornerShape(18.dp),
+                            color = ext.card,
+                            border = BorderStroke(1.dp, ext.border),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.Center,
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
+                            Column(modifier = Modifier.padding(18.dp)) {
                                 Text(
-                                    text = day.dayName.uppercase(),
+                                    text = if (uiState.selectedDate == uiState.todayDate) {
+                                        "TODAY'S SCHEDULE"
+                                    } else {
+                                        "SCHEDULE FOR ${uiState.selectedDate}"
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) Color.White else ext.subtext
+                                    color = ext.subtext
                                 )
-                                Spacer(Modifier.height(2.dp))
+                                Spacer(Modifier.height(6.dp))
                                 Text(
-                                    text = day.dayNum.toString(),
+                                    text = if (uiState.dayTasks.isNotEmpty()) {
+                                        "${uiState.completedCount} of ${uiState.dayTasks.size} tasks completed"
+                                    } else {
+                                        "No tasks scheduled yet"
+                                    },
                                     style = MaterialTheme.typography.titleLarge,
-                                    color = if (selected) Color.White else ext.title
+                                    color = ext.title
                                 )
-                                if (day.hasTasks) {
-                                    Spacer(Modifier.height(3.dp))
-                                    Box(
+                                Spacer(Modifier.height(16.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { showImportModal = true },
                                         modifier = Modifier
-                                            .size(5.dp)
-                                            .clip(CircleShape)
-                                            .background(if (selected) Color.White else ext.accent)
-                                    )
+                                            .weight(1f)
+                                            .height(48.dp)
+                                            .testTag("tracker_import_json_button"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, ext.accent),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = ext.accentSoft,
+                                            contentColor = ext.accent
+                                        )
+                                    ) {
+                                        Icon(Icons.Rounded.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Import JSON", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                    Button(
+                                        onClick = { showAddModal = true },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(48.dp)
+                                            .testTag("tracker_add_task_button"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = ext.accent,
+                                            contentColor = Color.White
+                                        )
+                                    ) {
+                                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Add Task", style = MaterialTheme.typography.labelMedium)
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                HorizontalDivider(color = ext.border)
 
-                // Daily Progress Summary + Action Buttons
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (uiState.selectedDate == uiState.todayDate) {
-                                "TODAY'S SCHEDULE"
-                            } else {
-                                "SCHEDULE FOR ${uiState.selectedDate}"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = ext.subtext
-                        )
-                        if (uiState.dayTasks.isNotEmpty()) {
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = "${uiState.completedCount} of ${uiState.dayTasks.size} tasks completed",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = ext.title
-                            )
-                        }
-                    }
+                    VerticalDivider(color = ext.border)
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(
-                            onClick = { showImportModal = true },
-                            shape = RoundedCornerShape(10.dp),
-                            color = ext.accentSoft,
-                            border = BorderStroke(1.dp, ext.accent),
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .size(40.dp)
-                                .testTag("tracker_import_json_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.UploadFile,
-                                contentDescription = "Import JSON tasks",
-                                tint = ext.accent,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                        Surface(
-                            onClick = { showAddModal = true },
-                            shape = RoundedCornerShape(10.dp),
-                            color = ext.accentSoft,
-                            border = BorderStroke(1.dp, ext.accent),
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .size(40.dp)
-                                .testTag("tracker_add_task_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Add,
-                                contentDescription = "Add task",
-                                tint = ext.accent,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Task List
-                if (uiState.dayTasks.isEmpty()) {
+                    // Right Schedule List Pane
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 56.dp, start = 24.dp, end = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .weight(0.55f)
+                            .fillMaxHeight()
+                            .padding(top = 20.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.EventAvailable,
-                            contentDescription = null,
-                            tint = ext.border,
-                            modifier = Modifier.size(52.dp)
-                        )
-                        Spacer(Modifier.height(12.dp))
                         Text(
-                            text = "No planned tasks or timetable entries for this date.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = ext.subtext,
-                            textAlign = TextAlign.Center
+                            text = "DAILY TIMETABLE",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ext.accent,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TrackerTaskListBody(
+                            uiState = uiState,
+                            onToggle = viewModel::toggleTask,
+                            onDelete = { deleteTaskId = it },
+                            horizontalPadding = 24.dp,
+                            modifier = Modifier.weight(1f)
                         )
                     }
-                } else {
-                    LazyColumn(
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                ) {
+                    CalendarStripRow(
+                        uiState = uiState,
+                        calendarListState = calendarListState,
+                        onSelectDate = viewModel::selectDate,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                    HorizontalDivider(color = ext.border)
+
+                    // Daily Progress Summary + Action Buttons
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        items(uiState.dayTasks, key = { it.id }) { task ->
-                            TaskRowCard(
-                                task = task,
-                                onToggle = { viewModel.toggleTask(task) },
-                                onDelete = { deleteTaskId = task.id }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (uiState.selectedDate == uiState.todayDate) {
+                                    "TODAY'S SCHEDULE"
+                                } else {
+                                    "SCHEDULE FOR ${uiState.selectedDate}"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ext.subtext
                             )
+                            if (uiState.dayTasks.isNotEmpty()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = "${uiState.completedCount} of ${uiState.dayTasks.size} tasks completed",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = ext.title
+                                )
+                            }
                         }
-                        item { Spacer(Modifier.height(16.dp)) }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                onClick = { showImportModal = true },
+                                shape = RoundedCornerShape(10.dp),
+                                color = ext.accentSoft,
+                                border = BorderStroke(1.dp, ext.accent),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .size(40.dp)
+                                    .testTag("tracker_import_json_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.UploadFile,
+                                    contentDescription = "Import JSON tasks",
+                                    tint = ext.accent,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                            Surface(
+                                onClick = { showAddModal = true },
+                                shape = RoundedCornerShape(10.dp),
+                                color = ext.accentSoft,
+                                border = BorderStroke(1.dp, ext.accent),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .size(40.dp)
+                                    .testTag("tracker_add_task_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Add,
+                                    contentDescription = "Add task",
+                                    tint = ext.accent,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
                     }
+
+                    TrackerTaskListBody(
+                        uiState = uiState,
+                        onToggle = viewModel::toggleTask,
+                        onDelete = { deleteTaskId = it },
+                        horizontalPadding = 20.dp,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -481,6 +536,111 @@ fun TrackerScreen(
                 deleteTaskId = null
             }
         )
+    }
+}
+
+@Composable
+private fun CalendarStripRow(
+    uiState: TrackerUiState,
+    calendarListState: androidx.compose.foundation.lazy.LazyListState,
+    onSelectDate: (String) -> Unit,
+    contentPadding: PaddingValues = PaddingValues(0.dp)
+) {
+    val ext = LocalQuizzMeColors.current
+    LazyRow(
+        state = calendarListState,
+        contentPadding = contentPadding,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        items(uiState.calendarDays, key = { it.dateStr }) { day ->
+            val selected = day.dateStr == uiState.selectedDate
+            Surface(
+                onClick = { onSelectDate(day.dateStr) },
+                shape = RoundedCornerShape(16.dp),
+                color = if (selected) ext.accent else ext.card,
+                border = BorderStroke(1.dp, if (selected) ext.accent else ext.border),
+                modifier = Modifier
+                    .size(width = 60.dp, height = 74.dp)
+                    .testTag("calendar_day_${day.dateStr}")
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = day.dayName.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) Color.White else ext.subtext
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = day.dayNum.toString(),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = if (selected) Color.White else ext.title
+                    )
+                    if (day.hasTasks) {
+                        Spacer(Modifier.height(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(if (selected) Color.White else ext.accent)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackerTaskListBody(
+    uiState: TrackerUiState,
+    onToggle: (TrackerTaskEntity) -> Unit,
+    onDelete: (String) -> Unit,
+    horizontalPadding: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier
+) {
+    val ext = LocalQuizzMeColors.current
+    if (uiState.dayTasks.isEmpty()) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(top = 56.dp, start = 24.dp, end = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.EventAvailable,
+                contentDescription = null,
+                tint = ext.border,
+                modifier = Modifier.size(52.dp)
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "No planned tasks or timetable entries for this date.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = ext.subtext,
+                textAlign = TextAlign.Center
+            )
+        }
+    } else {
+        LazyColumn(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizontalPadding),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(uiState.dayTasks, key = { it.id }) { task ->
+                TaskRowCard(
+                    task = task,
+                    onToggle = { onToggle(task) },
+                    onDelete = { onDelete(task.id) }
+                )
+            }
+            item { Spacer(Modifier.height(16.dp)) }
+        }
     }
 }
 

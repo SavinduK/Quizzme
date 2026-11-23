@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 
 data class SettingsUiState(
     val geminiApiKey: String = "",
-    val selectedModel: GeminiModelOption = GeminiModelOption.FLASH,
+    val selectedModel: GeminiModelOption = GeminiModelOption.GEMINI_2_5_FLASH,
     val questionCount: Int = 5,
     val questionStyle: QuestionStyle = QuestionStyle.MCQ,
     val customPrompt: String = "",
