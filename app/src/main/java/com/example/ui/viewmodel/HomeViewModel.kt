@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
-    val sourceMode: SourceMode = SourceMode.AI,
     val availableSubjects: List<String> = emptyList(),
     val availableTerms: List<String> = emptyList(),
     val drawerItems: List<DrawerFolderItem> = emptyList(),
@@ -32,15 +31,13 @@ data class HomeUiState(
         get() = selectedSubject != null ||
             selectedTerm != null ||
             selectedLesson != null ||
-            selectedType != QuestionStyle.MCQ ||
-            sourceMode != SourceMode.AI
+            selectedType != QuestionStyle.MCQ
 }
 
 class HomeViewModel(
     private val repository: QuizzMeRepository
 ) : ViewModel() {
 
-    private val _sourceMode = MutableStateFlow(SourceMode.AI)
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -48,38 +45,19 @@ class HomeViewModel(
         viewModelScope.launch {
             combine(
                 repository.allLectures,
-                repository.allPastPapers,
-                repository.settingsFlow,
-                _sourceMode
-            ) { lectures, papers, settings, currentMode ->
-                val subjects: List<String>
-                val terms: List<String>
-                val folderItems: List<DrawerFolderItem>
-                if (currentMode == SourceMode.AI) {
-                    val withQuizzes = lectures.filter { !it.cachedQuizJson.isNullOrBlank() }
-                    subjects = withQuizzes.map { it.subject }.filter { it.isNotBlank() }.distinct().sorted()
-                    terms = withQuizzes.map { it.term }.filter { it.isNotBlank() }.distinct().sorted()
-                    folderItems = withQuizzes.map {
-                        DrawerFolderItem(
-                            id = it.id,
-                            title = it.lesson,
-                            subject = it.subject,
-                            term = it.term,
-                            updatedAt = it.updatedAt
-                        )
-                    }
-                } else {
-                    subjects = papers.map { it.subject }.filter { it.isNotBlank() }.distinct().sorted()
-                    terms = papers.map { it.term }.filter { it.isNotBlank() }.distinct().sorted()
-                    folderItems = papers.map {
-                        DrawerFolderItem(
-                            id = it.id,
-                            title = it.lesson,
-                            subject = it.subject,
-                            term = it.term,
-                            updatedAt = it.updatedAt
-                        )
-                    }
+                repository.settingsFlow
+            ) { lectures, settings ->
+                val withQuizzes = lectures.filter { !it.cachedQuizJson.isNullOrBlank() }
+                val subjects = withQuizzes.map { it.subject }.filter { it.isNotBlank() }.distinct().sorted()
+                val terms = withQuizzes.map { it.term }.filter { it.isNotBlank() }.distinct().sorted()
+                val folderItems = withQuizzes.map {
+                    DrawerFolderItem(
+                        id = it.id,
+                        title = it.lesson,
+                        subject = it.subject,
+                        term = it.term,
+                        updatedAt = it.updatedAt
+                    )
                 }
                 HomeMetaSnapshot(subjects, terms, folderItems, settings.questionCount)
             }.collect { meta ->
@@ -94,20 +72,6 @@ class HomeViewModel(
                 recompileSessionPool()
             }
         }
-    }
-
-    fun setSourceMode(mode: SourceMode) {
-        _uiState.update {
-            it.copy(
-                sourceMode = mode,
-                selectedSubject = null,
-                selectedTerm = null,
-                selectedLesson = null,
-                selectedDrawerItemId = null
-            )
-        }
-        _sourceMode.value = mode
-        recompileSessionPool()
     }
 
     fun setSortOrder(order: FolderSortOrder) {
@@ -175,7 +139,7 @@ class HomeViewModel(
         viewModelScope.launch {
             val effectiveTerm = snapshot.selectedTerm?.takeUnless { it == "Uncategorized" }
             val pool = repository.compileHomeSessionPool(
-                sourceMode = snapshot.sourceMode,
+                sourceMode = SourceMode.AI,
                 selectedSubject = snapshot.selectedSubject,
                 selectedTerm = effectiveTerm,
                 selectedType = snapshot.selectedType,
@@ -191,7 +155,12 @@ class HomeViewModel(
     fun onMcqOptionSelected(option: String) {
         _uiState.update { state ->
             val currentQ = state.quizState.currentQuestion ?: return@update state
-            state.copy(quizState = state.quizState.selectMcqOption(option, currentQ.correctAnswer))
+            state.copy(
+                quizState = state.quizState.selectMcqOption(
+                    option = option,
+                    correctResponses = currentQ.resolvedCorrectResponses()
+                )
+            )
         }
     }
 

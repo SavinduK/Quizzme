@@ -17,8 +17,7 @@ import kotlinx.coroutines.launch
 enum class ReaderTab(val title: String) {
     NOTES("Notes"),
     QUIZ("Quiz"),
-    SUMMARY("Summary"),
-    PAST_PAPER("Past Paper")
+    SUMMARY("Summary")
 }
 
 data class LessonReaderUiState(
@@ -36,12 +35,6 @@ data class LessonReaderUiState(
     val summaryStatus: String = "Checking context...",
     val summaryText: String = "",
     val summaryError: String? = null,
-    // Past Paper Tab
-    val pastPaperInputText: String = "",
-    val processingPastPaper: Boolean = false,
-    val pastPaperError: String? = null,
-    val pastPaperStyle: QuestionStyle = QuestionStyle.MCQ,
-    val pastPaperSession: QuizSessionState = QuizSessionState(),
     // Editor
     val isSavingEdit: Boolean = false,
     val snackbarMessage: String? = null
@@ -65,25 +58,6 @@ class LessonReaderViewModel(
                         lecture = entity,
                         summaryText = entity?.summaryMarkdown ?: state.summaryText
                     )
-                }
-            }
-        }
-        viewModelScope.launch {
-            repository.observePastPaper(lectureId).collect { paper ->
-                if (paper != null) {
-                    val questions = runCatching { QuizJsonParser.parseQuestions(paper.questionsJson) }
-                        .getOrDefault(emptyList())
-                    val style = questions.firstOrNull()?.detectedStyle() ?: QuestionStyle.MCQ
-                    _uiState.update { state ->
-                        state.copy(
-                            pastPaperStyle = style,
-                            pastPaperSession = QuizSessionState(deck = questions)
-                        )
-                    }
-                } else {
-                    _uiState.update { state ->
-                        state.copy(pastPaperSession = QuizSessionState())
-                    }
                 }
             }
         }
@@ -258,112 +232,17 @@ class LessonReaderViewModel(
         }
     }
 
-    fun updatePastPaperInput(text: String) {
-        _uiState.update { it.copy(pastPaperInputText = text, pastPaperError = null) }
-    }
-
-    fun saveDirectJsonPastPaper() {
-        val raw = _uiState.value.pastPaperInputText
-        if (raw.isBlank()) {
-            _uiState.update { it.copy(pastPaperError = "Text input cannot be empty.") }
-            return
-        }
-        viewModelScope.launch {
-            val lecture = repository.getLecture(lectureId) ?: return@launch
-            try {
-                val questions = QuizJsonParser.parseQuestions(raw)
-                if (questions.isEmpty()) {
-                    throw IllegalArgumentException("No valid questions found in JSON.")
-                }
-                repository.savePastPaper(
-                    id = lectureId,
-                    lesson = lecture.lesson,
-                    subject = lecture.subject,
-                    term = lecture.term,
-                    questions = questions
-                )
-                _uiState.update {
-                    it.copy(
-                        pastPaperInputText = "",
-                        pastPaperError = null,
-                        snackbarMessage = "Past paper questions saved."
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(pastPaperError = "Invalid JSON: ${e.localizedMessage ?: "Check formatting."}")
-                }
-            }
-        }
-    }
-
-    fun convertPlaintextPastPaper() {
-        val raw = _uiState.value.pastPaperInputText
-        if (raw.isBlank()) {
-            _uiState.update { it.copy(pastPaperError = "Text input cannot be empty.") }
-            return
-        }
-        viewModelScope.launch {
-            val lecture = repository.getLecture(lectureId) ?: return@launch
-            val settings = repository.settingsRepository.getSettingsOnce()
-            _uiState.update { it.copy(processingPastPaper = true, pastPaperError = null) }
-            try {
-                val questions = repository.aiRepository.parsePastPaperText(raw, settings.customPrompt)
-                repository.savePastPaper(
-                    id = lectureId,
-                    lesson = lecture.lesson,
-                    subject = lecture.subject,
-                    term = lecture.term,
-                    questions = questions
-                )
-                _uiState.update {
-                    it.copy(
-                        processingPastPaper = false,
-                        pastPaperInputText = "",
-                        snackbarMessage = "Past paper auto-detected and saved."
-                    )
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        processingPastPaper = false,
-                        pastPaperError = e.localizedMessage ?: "Could not process text via Gemini AI."
-                    )
-                }
-            }
-        }
-    }
-
-    fun deletePastPaper() {
-        viewModelScope.launch {
-            repository.deletePastPaper(lectureId)
-            _uiState.update {
-                it.copy(
-                    pastPaperInputText = "",
-                    pastPaperSession = QuizSessionState(),
-                    snackbarMessage = "Past paper removed."
-                )
-            }
-        }
-    }
-
-    // Unified quiz interactions for Quiz or Past Paper tab
+    // Quiz interactions
     private fun updateActiveSession(transform: (QuizSessionState) -> QuizSessionState) {
         _uiState.update { state ->
-            if (state.activeTab == ReaderTab.PAST_PAPER) {
-                state.copy(pastPaperSession = transform(state.pastPaperSession))
-            } else {
-                state.copy(quizSession = transform(state.quizSession))
-            }
+            state.copy(quizSession = transform(state.quizSession))
         }
     }
 
     fun onMcqOptionSelected(option: String) {
         updateActiveSession { session ->
             val q = session.currentQuestion ?: return@updateActiveSession session
-            session.selectMcqOption(option, q.correctAnswer)
+            session.selectMcqOption(option, q.resolvedCorrectResponses())
         }
     }
 
@@ -406,9 +285,5 @@ class LessonReaderViewModel(
 
     fun onNextQuestion() {
         updateActiveSession { it.advanceToNextQuestion() }
-    }
-
-    fun restartPastPaperSession() {
-        updateActiveSession { QuizSessionState(deck = it.deck) }
     }
 }

@@ -51,10 +51,12 @@ class AiRepository(
 
         const val PAST_PAPER_CONVERT_PROMPT =
             "Analyze the provided past paper content and classify each question into JSON format under {\"questions\": [...]}. " +
-                "Supported types: \"MCQ\" (question, 5 options, exact matching correct_answer, explanation), " +
-                "\"TF\" (question stem, 5 statements, 5 boolean answers, explanation), " +
-                "\"SA\" (question, correct_answer, explanation), " +
-                "\"SEQ\" (question, sub_questions [{sub_question, marks, answer_key}], model_answer)."
+                "For every question include: \"question\", \"options\" (if MCQ), \"correct_answer\" / \"correct_answers\", " +
+                "\"explanation\" (answer explained), \"year\" (exam year if visible), and \"lesson\" (topic/lesson name). " +
+                "Supported types: \"MCQ\" (question, options, matching correct_answer, explanation, year, lesson), " +
+                "\"TF\" (question stem, statements, boolean answers, explanation, year, lesson), " +
+                "\"SA\" (question, correct_answer, explanation, year, lesson), " +
+                "\"SEQ\" (question, sub_questions [{sub_question, marks, answer_key}], model_answer, year, lesson)."
     }
 
     private suspend fun requireCredentials(): Pair<String, String> {
@@ -263,17 +265,21 @@ class AiRepository(
 
     suspend fun parsePastPaperText(
         rawText: String,
-        customPrompt: String = ""
+        customPrompt: String = "",
+        defaultYear: String = "",
+        defaultLesson: String = ""
     ): List<QuizQuestion> {
         val (apiKey, modelId) = requireCredentials()
         val extra = if (customPrompt.isNotBlank()) "\nAdditional Instructions: $customPrompt" else ""
+        val defaultsHint = buildDefaultsHint(defaultYear, defaultLesson)
         val prompt =
             "Analyze the provided past paper text and classify each question into its appropriate format:\n" +
-                "- \"MCQ\" (Multiple Choice with options and exact matching correct_answer)\n" +
-                "- \"TF\" (True/False with statements array and boolean answers array)\n" +
-                "- \"SA\" (Short Answer with correct_answer and explanation)\n" +
-                "- \"SEQ\" (Structured Essay with sub_questions array and model_answer)\n" +
-                "Extract all questions faithfully.$extra\n\nPast Paper Content Text:\n$rawText"
+                "- \"MCQ\" (Multiple Choice with \"options\", \"correct_answer\" or \"correct_answers\", and detailed \"explanation\")\n" +
+                "- \"TF\" (True/False with \"statements\" array, boolean \"answers\" array, and \"explanation\")\n" +
+                "- \"SA\" (Short Answer with \"correct_answer\" and \"explanation\")\n" +
+                "- \"SEQ\" (Structured Essay with \"sub_questions\" array and \"model_answer\")\n" +
+                "For EVERY question also extract \"year\" (exam year if present) and \"lesson\" (topic/lesson name). " +
+                "Extract all questions faithfully.$defaultsHint$extra\n\nPast Paper Content Text:\n$rawText"
 
         val payload = buildJsonObject {
             put("contents", buildJsonArray {
@@ -296,7 +302,7 @@ class AiRepository(
                 if (parsed.isEmpty()) {
                     throw IllegalStateException("Could not detect any structured questions from the provided text.")
                 }
-                parsed
+                applyQuestionDefaults(parsed, defaultYear, defaultLesson)
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Past paper parsing timed out", e)
@@ -309,9 +315,77 @@ class AiRepository(
         }
     }
 
+    suspend fun parsePastPaperPdf(
+        pdfBytes: ByteArray,
+        customPrompt: String = "",
+        defaultYear: String = "",
+        defaultLesson: String = ""
+    ): List<QuizQuestion> {
+        if (pdfBytes.isEmpty()) {
+            throw IllegalArgumentException("The selected past paper PDF is empty.")
+        }
+        if (pdfBytes.size > MAX_INLINE_BYTES) {
+            throw IllegalArgumentException("PDF exceeds the 18 MB inline upload limit. Please select a smaller file.")
+        }
+        val (apiKey, modelId) = requireCredentials()
+        val encodedPdf = Base64.encodeToString(pdfBytes, Base64.NO_WRAP)
+        val extra = if (customPrompt.isNotBlank()) "\nAdditional Instructions: $customPrompt" else ""
+        val defaultsHint = buildDefaultsHint(defaultYear, defaultLesson)
+        val promptText =
+            "Analyze the attached past paper PDF document thoroughly. Extract EVERY question found across all pages " +
+                "and classify each into its appropriate format:\n" +
+                "- \"MCQ\": Multiple Choice with all \"options\", \"correct_answer\" (and \"correct_answers\" if multiple apply), plus detailed \"explanation\".\n" +
+                "- \"TF\": True/False stem with \"statements\" array, matching boolean \"answers\" array, and \"explanation\".\n" +
+                "- \"SA\": Short Answer with \"correct_answer\" and \"explanation\".\n" +
+                "- \"SEQ\": Structured Essay with \"sub_questions\" (sub_question, marks, answer_key) and \"model_answer\".\n" +
+                "For EVERY question, also populate \"year\" (exam year shown on the paper) and \"lesson\" (the subject/topic/lesson). " +
+                "If answers or explanations are missing in the PDF, solve them accurately and explain the answer clearly.$defaultsHint$extra"
+
+        val payload = buildJsonObject {
+            put("contents", buildJsonArray {
+                add(buildJsonObject {
+                    put("parts", buildJsonArray {
+                        add(buildJsonObject {
+                            put("inline_data", buildJsonObject {
+                                put("mime_type", "application/pdf")
+                                put("data", encodedPdf)
+                            })
+                        })
+                        add(buildJsonObject { put("text", promptText) })
+                    })
+                })
+            })
+            put("generationConfig", buildJsonObject {
+                put("responseMimeType", "application/json")
+                put("responseSchema", pastPaperSchema())
+            })
+        }
+
+        return try {
+            withTimeout(AI_TIMEOUT_MS) {
+                val jsonText = executeGenerateContent(apiKey, modelId, payload.toString())
+                val parsed = QuizJsonParser.parseQuestions(jsonText)
+                if (parsed.isEmpty()) {
+                    throw IllegalStateException("Could not detect any structured questions in the uploaded PDF.")
+                }
+                applyQuestionDefaults(parsed, defaultYear, defaultLesson)
+            }
+        } catch (e: TimeoutCancellationException) {
+            Log.e(TAG, "Past paper PDF analysis timed out", e)
+            throw IllegalStateException("Past paper PDF analysis timed out after 5 minutes. Try a lighter model or smaller PDF.")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Past paper PDF analysis failed", e)
+            throw IllegalStateException(e.localizedMessage ?: "Failed to analyze past paper PDF.")
+        }
+    }
+
     suspend fun parsePastPaperImages(
         imageBytesList: List<ByteArray>,
-        customPrompt: String = ""
+        customPrompt: String = "",
+        defaultYear: String = "",
+        defaultLesson: String = ""
     ): List<QuizQuestion> {
         if (imageBytesList.isEmpty()) {
             throw IllegalArgumentException("No past paper images were provided.")
@@ -323,14 +397,16 @@ class AiRepository(
         val (apiKey, modelId) = requireCredentials()
 
         val extra = if (customPrompt.isNotBlank()) "\nAdditional Instructions: $customPrompt" else ""
+        val defaultsHint = buildDefaultsHint(defaultYear, defaultLesson)
         val promptText =
             "Analyze all attached past paper images thoroughly. Transcribe and extract every question shown across the images " +
                 "and classify each into its appropriate format:\n" +
-                "- \"MCQ\": Multiple Choice with all options and exact matching \"correct_answer\" plus concise \"explanation\".\n" +
+                "- \"MCQ\": Multiple Choice with all \"options\", \"correct_answer\" (and \"correct_answers\" if multiple apply), plus detailed \"explanation\".\n" +
                 "- \"TF\": True/False stem with \"statements\" array, matching boolean \"answers\" array, and \"explanation\".\n" +
                 "- \"SA\": Short Answer with \"correct_answer\" and \"explanation\".\n" +
                 "- \"SEQ\": Structured Essay with \"sub_questions\" (sub_question, marks, answer_key) and \"model_answer\".\n" +
-                "If an image shows questions without a visible answer key, solve them accurately and populate the answer key and explanation.$extra"
+                "For EVERY question, also populate \"year\" (exam year) and \"lesson\" (topic/lesson name). " +
+                "If an image shows questions without a visible answer key, solve them accurately and populate the answer key and explanation.$defaultsHint$extra"
 
         val payload = buildJsonObject {
             put("contents", buildJsonArray {
@@ -361,7 +437,7 @@ class AiRepository(
                 if (parsed.isEmpty()) {
                     throw IllegalStateException("Could not detect any structured questions in the uploaded images.")
                 }
-                parsed
+                applyQuestionDefaults(parsed, defaultYear, defaultLesson)
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Past paper image analysis timed out", e)
@@ -371,6 +447,29 @@ class AiRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Past paper image analysis failed", e)
             throw IllegalStateException(e.localizedMessage ?: "Failed to analyze past paper images.")
+        }
+    }
+
+    private fun buildDefaultsHint(defaultYear: String, defaultLesson: String): String {
+        val parts = buildList {
+            if (defaultYear.isNotBlank()) add("default year \"$defaultYear\" if not stated in question")
+            if (defaultLesson.isNotBlank()) add("default lesson \"$defaultLesson\" if not stated in question")
+        }
+        return if (parts.isEmpty()) "" else "\nMetadata context: ${parts.joinToString(", ")}."
+    }
+
+    private fun applyQuestionDefaults(
+        questions: List<QuizQuestion>,
+        defaultYear: String,
+        defaultLesson: String
+    ): List<QuizQuestion> {
+        val cleanYear = defaultYear.trim()
+        val cleanLesson = defaultLesson.trim()
+        return questions.map { q ->
+            q.copy(
+                year = q.year?.takeIf { it.isNotBlank() } ?: cleanYear.ifBlank { null },
+                lesson = q.lesson?.takeIf { it.isNotBlank() } ?: cleanLesson.ifBlank { null }
+            )
         }
     }
 
@@ -605,11 +704,14 @@ class AiRepository(
                 put("question", stringSchema("Question stem or topic"))
                 put("options", arraySchema(stringSchema(), nullable = true))
                 put("correct_answer", stringSchema(nullable = true))
+                put("correct_answers", arraySchema(stringSchema(), nullable = true))
                 put("statements", arraySchema(stringSchema(), nullable = true))
                 put("answers", arraySchema(boolSchema(), nullable = true))
-                put("explanation", stringSchema(nullable = true))
+                put("explanation", stringSchema("Detailed explanation of the correct answer", nullable = true))
                 put("sub_questions", arraySchema(subQuestionSchema, nullable = true))
                 put("model_answer", stringSchema(nullable = true))
+                put("year", stringSchema("Exam year e.g. 2023", nullable = true))
+                put("lesson", stringSchema("Lesson or topic name", nullable = true))
             })
             put("required", buildJsonArray {
                 add(JsonPrimitive("type"))

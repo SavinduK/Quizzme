@@ -41,6 +41,9 @@ interface PastPaperDao {
     @Query("SELECT * FROM past_papers WHERE id = :id OR id = :altId LIMIT 1")
     fun observeByIdOrAlt(id: String, altId: String): Flow<PastPaperEntity?>
 
+    @Query("SELECT * FROM past_papers WHERE linkedLectureId = :lectureId ORDER BY updatedAt DESC")
+    fun observeByLinkedLectureId(lectureId: String): Flow<List<PastPaperEntity>>
+
     @Query("SELECT * FROM past_papers WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): PastPaperEntity?
 

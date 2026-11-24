@@ -22,7 +22,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
@@ -54,7 +53,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.QuestionStyle
-import com.example.model.SourceMode
 import com.example.ui.components.QuizCard
 import com.example.ui.components.QuizResultsCard
 import com.example.ui.components.QuizzMeHeader
@@ -68,7 +66,6 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     widthSizeClass: WindowWidthSizeClass,
     onOpenDrawer: (() -> Unit)?,
-    onNavigateToAddPaper: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -84,9 +81,7 @@ fun HomeScreen(
             title = "Questions",
             onMenuClick = onOpenDrawer,
             menuButtonTag = "home_drawer_button",
-            hasActiveDrawerFilter = uiState.selectedTerm != null || uiState.selectedLesson != null,
-            onAddClick = onNavigateToAddPaper,
-            addButtonTag = "home_add_paper_button"
+            hasActiveDrawerFilter = uiState.selectedTerm != null || uiState.selectedLesson != null
         )
 
         if (isTablet) {
@@ -148,7 +143,7 @@ fun HomeScreen(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Filter your study pool by source, format, subject, or term.",
+                            text = "Filter your study pool by format, subject, or term.",
                             style = MaterialTheme.typography.bodySmall,
                             color = ext.subtext
                         )
@@ -159,7 +154,6 @@ fun HomeScreen(
 
                         HomeFiltersContent(
                             uiState = uiState,
-                            onSourceModeChange = viewModel::setSourceMode,
                             onTypeChange = viewModel::setSelectedType,
                             onSubjectChange = viewModel::setSelectedSubject,
                             onTermChange = viewModel::setSelectedTerm,
@@ -238,7 +232,6 @@ fun HomeScreen(
                 Box(modifier = Modifier.padding(horizontal = 24.dp, vertical = 18.dp)) {
                     HomeFiltersContent(
                         uiState = uiState,
-                        onSourceModeChange = viewModel::setSourceMode,
                         onTypeChange = viewModel::setSelectedType,
                         onSubjectChange = viewModel::setSelectedSubject,
                         onTermChange = viewModel::setSelectedTerm,
@@ -274,17 +267,13 @@ private fun HomeStatusRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = if (uiState.sourceMode == SourceMode.PAST_PAPER) {
-                        Icons.Rounded.Description
-                    } else {
-                        Icons.Rounded.Bolt
-                    },
+                    imageVector = Icons.Rounded.Bolt,
                     contentDescription = null,
                     tint = ext.accent,
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "${uiState.sourceMode.label.uppercase()} • ${uiState.selectedType.shortLabel.uppercase()}",
+                    text = "AI GENERATED • ${uiState.selectedType.shortLabel.uppercase()}",
                     style = MaterialTheme.typography.labelMedium,
                     color = ext.subtext
                 )
@@ -348,22 +337,14 @@ private fun HomeQuizFeedContent(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
-                    imageVector = if (uiState.sourceMode == SourceMode.PAST_PAPER) {
-                        Icons.Rounded.Description
-                    } else {
-                        Icons.Rounded.School
-                    },
+                    imageVector = Icons.Rounded.School,
                     contentDescription = null,
                     tint = ext.border,
                     modifier = Modifier.size(56.dp)
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = if (uiState.sourceMode == SourceMode.PAST_PAPER) {
-                        "No saved past paper questions match your selection."
-                    } else {
-                        "No AI generated questions found for this criteria. Open a lesson and generate a quiz to populate your pool."
-                    },
+                    text = "No AI generated questions found for this criteria. Open a lesson and generate a quiz to populate your pool.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = ext.subtext,
                     textAlign = TextAlign.Center
@@ -418,7 +399,6 @@ private fun HomeQuizFeedContent(
 @Composable
 private fun HomeFiltersContent(
     uiState: HomeUiState,
-    onSourceModeChange: (SourceMode) -> Unit,
     onTypeChange: (QuestionStyle) -> Unit,
     onSubjectChange: (String?) -> Unit,
     onTermChange: (String?) -> Unit,
@@ -427,31 +407,6 @@ private fun HomeFiltersContent(
 ) {
     val ext = LocalQuizzMeColors.current
     Column {
-        Text(
-            text = "DATA SOURCE",
-            style = MaterialTheme.typography.labelSmall,
-            color = ext.subtext
-        )
-        Spacer(Modifier.height(10.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterPillChip(
-                label = "AI Generated",
-                selected = uiState.sourceMode == SourceMode.AI,
-                onClick = { onSourceModeChange(SourceMode.AI) },
-                tag = "source_ai_chip"
-            )
-            FilterPillChip(
-                label = "Saved Past Papers",
-                selected = uiState.sourceMode == SourceMode.PAST_PAPER,
-                onClick = { onSourceModeChange(SourceMode.PAST_PAPER) },
-                tag = "source_pastpaper_chip"
-            )
-        }
-
-        Spacer(Modifier.height(20.dp))
 
         Text(
             text = "QUESTION FORMAT",

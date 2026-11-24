@@ -3,13 +3,10 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -36,9 +33,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.AddPhotoAlternate
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Save
@@ -58,15 +52,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,7 +65,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -84,10 +74,7 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalQuizzMeColors
 import com.example.ui.viewmodel.AddContentViewModel
 import com.example.ui.viewmodel.AddNotesUiState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 
 @Composable
 fun AddNotesScreen(
@@ -101,7 +88,6 @@ fun AddNotesScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var preparingImages by remember { mutableStateOf(false) }
     val isTablet = widthSizeClass != WindowWidthSizeClass.Compact
 
     BackHandler { onBack() }
@@ -118,27 +104,6 @@ fun AddNotesScreen(
         }
     }
 
-    val paperImagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
-    ) { uris: List<Uri> ->
-        if (uris.isNotEmpty()) {
-            scope.launch {
-                preparingImages = true
-                val encodedImages = withContext(Dispatchers.IO) {
-                    uris.mapNotNull { encodeUriToCompressedJpeg(context, it) }
-                }
-                preparingImages = false
-                if (encodedImages.isNotEmpty()) {
-                    viewModel.processPastPaperImages(encodedImages)
-                } else {
-                    viewModel.setPaperImagesError("Could not read the selected image(s).")
-                }
-            }
-        }
-    }
-
-    val isAnalyzingImages = preparingImages || uiState.processingPaperImages
-
     fun copyPdfConvertingPrompt() {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(
@@ -148,6 +113,8 @@ fun AddNotesScreen(
             snackbarHostState.showSnackbar("Converting prompt copied to clipboard")
         }
     }
+
+    val isUploadingOrSaving = uiState.processingPdf || uiState.saving
 
     Scaffold(
         modifier = modifier
@@ -205,7 +172,7 @@ fun AddNotesScreen(
 
                 Button(
                     onClick = viewModel::saveNotes,
-                    enabled = !uiState.processingPdf && !isAnalyzingImages && !uiState.saving,
+                    enabled = !isUploadingOrSaving,
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ext.accent,
@@ -233,18 +200,41 @@ fun AddNotesScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = if (uiState.extractedPaperQuestions.isNotEmpty()) {
-                                "Save All"
-                            } else {
-                                "Save"
-                            },
-                            style = MaterialTheme.typography.labelLarge
-                        )
+                        Text("Save", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
             HorizontalDivider(color = ext.border)
+
+            // Pinned Loading Bar for Lesson PDF Upload & Save
+            AnimatedVisibility(visible = isUploadingOrSaving) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = if (uiState.processingPdf) {
+                            "Uploading & converting ${uiState.attachedFileName ?: "PDF"}..."
+                        } else {
+                            "Saving lesson notes..."
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = ext.accent
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .testTag("lesson_upload_loading_bar"),
+                        color = ext.accent,
+                        trackColor = ext.border,
+                        strokeCap = StrokeCap.Round
+                    )
+                }
+            }
 
             if (isTablet) {
                 Row(
@@ -264,19 +254,11 @@ fun AddNotesScreen(
                     ) {
                         NotesMetadataAndUploadSection(
                             uiState = uiState,
-                            preparingImages = preparingImages,
-                            isAnalyzingImages = isAnalyzingImages,
                             onSubjectChange = viewModel::setNotesSubject,
                             onTermChange = viewModel::setNotesTerm,
                             onLessonChange = viewModel::setNotesLesson,
                             onUploadPdfClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
-                            onCopyPromptClick = ::copyPdfConvertingPrompt,
-                            onUploadImagesClick = {
-                                paperImagePickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            onClearImages = viewModel::clearPastPaperImages
+                            onCopyPromptClick = ::copyPdfConvertingPrompt
                         )
                     }
 
@@ -306,19 +288,11 @@ fun AddNotesScreen(
                 ) {
                     NotesMetadataAndUploadSection(
                         uiState = uiState,
-                        preparingImages = preparingImages,
-                        isAnalyzingImages = isAnalyzingImages,
                         onSubjectChange = viewModel::setNotesSubject,
                         onTermChange = viewModel::setNotesTerm,
                         onLessonChange = viewModel::setNotesLesson,
                         onUploadPdfClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
-                        onCopyPromptClick = ::copyPdfConvertingPrompt,
-                        onUploadImagesClick = {
-                            paperImagePickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
-                        onClearImages = viewModel::clearPastPaperImages
+                        onCopyPromptClick = ::copyPdfConvertingPrompt
                     )
 
                     Spacer(Modifier.height(22.dp))
@@ -348,15 +322,11 @@ fun AddNotesScreen(
 @Composable
 private fun NotesMetadataAndUploadSection(
     uiState: AddNotesUiState,
-    preparingImages: Boolean,
-    isAnalyzingImages: Boolean,
     onSubjectChange: (String) -> Unit,
     onTermChange: (String) -> Unit,
     onLessonChange: (String) -> Unit,
     onUploadPdfClick: () -> Unit,
-    onCopyPromptClick: () -> Unit,
-    onUploadImagesClick: () -> Unit,
-    onClearImages: () -> Unit
+    onCopyPromptClick: () -> Unit
 ) {
     val ext = LocalQuizzMeColors.current
 
@@ -399,7 +369,7 @@ private fun NotesMetadataAndUploadSection(
     ) {
         OutlinedButton(
             onClick = onUploadPdfClick,
-            enabled = !uiState.processingPdf,
+            enabled = !uiState.processingPdf && !uiState.saving,
             modifier = Modifier
                 .weight(1f)
                 .height(54.dp)
@@ -515,191 +485,6 @@ private fun NotesMetadataAndUploadSection(
             }
         }
     }
-
-    Spacer(Modifier.height(22.dp))
-
-    Text(
-        text = "PAST PAPER IMAGES (OPTIONAL)",
-        style = MaterialTheme.typography.labelMedium,
-        color = ext.accent
-    )
-    Spacer(Modifier.height(6.dp))
-    Text(
-        text = "Upload past paper photos or screenshots to extract questions for the Past Paper section and quiz generation.",
-        style = MaterialTheme.typography.bodySmall,
-        color = ext.subtext
-    )
-    Spacer(Modifier.height(10.dp))
-
-    OutlinedButton(
-        onClick = onUploadImagesClick,
-        enabled = !isAnalyzingImages && !uiState.saving,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .testTag("upload_past_paper_images_button"),
-        shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = ext.card,
-            contentColor = ext.accent
-        ),
-        border = BorderStroke(1.dp, ext.border)
-    ) {
-        if (isAnalyzingImages) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(18.dp),
-                strokeWidth = 2.dp,
-                color = ext.accent
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = if (preparingImages) {
-                    "Preparing Images..."
-                } else {
-                    "Analyzing ${uiState.selectedPaperImageCount} Image(s)..."
-                },
-                color = ext.title
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Rounded.AddPhotoAlternate,
-                contentDescription = null,
-                tint = ext.accent,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = if (uiState.extractedPaperQuestions.isNotEmpty()) {
-                    "Replace Past Paper Images (${uiState.selectedPaperImageCount})"
-                } else {
-                    "Upload Past Paper Images"
-                },
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
-    }
-
-    AnimatedVisibility(visible = isAnalyzingImages) {
-        LinearProgressIndicator(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp)
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp)),
-            color = ext.accent,
-            trackColor = ext.border,
-            strokeCap = StrokeCap.Round
-        )
-    }
-
-    if (uiState.paperImagesError != null) {
-        Spacer(Modifier.height(10.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            color = ext.card,
-            border = BorderStroke(1.dp, ext.danger)
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = uiState.paperImagesError,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ext.danger,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onClearImages) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = "Dismiss image error",
-                        tint = ext.danger,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        }
-    }
-
-    if (uiState.extractedPaperQuestions.isNotEmpty()) {
-        Spacer(Modifier.height(12.dp))
-        val questions = uiState.extractedPaperQuestions
-        val breakdown = questions.groupingBy { it.detectedStyle().shortLabel }
-            .eachCount()
-            .entries
-            .joinToString(" • ") { "${it.key}: ${it.value}" }
-
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("extracted_paper_preview_card"),
-            shape = RoundedCornerShape(16.dp),
-            color = ext.accentSoft,
-            border = BorderStroke(1.dp, ext.accent)
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.CheckCircle,
-                            contentDescription = null,
-                            tint = ext.accent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = "${questions.size} Past Paper Question(s) Ready",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = ext.title
-                        )
-                    }
-                    TextButton(
-                        onClick = onClearImages,
-                        modifier = Modifier.testTag("clear_paper_images_button")
-                    ) {
-                        Text("Clear", color = ext.danger)
-                    }
-                }
-
-                if (breakdown.isNotBlank()) {
-                    Text(
-                        text = breakdown,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ext.accent
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                questions.take(3).forEachIndexed { idx, q ->
-                    Text(
-                        text = "${idx + 1}. [${q.detectedStyle().shortLabel}] ${q.question}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ext.text,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(vertical = 2.dp)
-                    )
-                }
-                if (questions.size > 3) {
-                    Text(
-                        text = "+${questions.size - 3} more question(s)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ext.subtext,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -774,50 +559,9 @@ internal fun StyledFormField(
     )
 }
 
-private fun resolveDisplayName(context: Context, uri: Uri): String? {
+internal fun resolveDisplayName(context: Context, uri: Uri): String? {
     return context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
         val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
     }
-}
-
-private fun encodeUriToCompressedJpeg(context: Context, uri: Uri): ByteArray? {
-    return runCatching {
-        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, boundsOptions)
-        }
-        val maxDim = 1600
-        var sampleSize = 1
-        val width = boundsOptions.outWidth
-        val height = boundsOptions.outHeight
-        if (width > maxDim || height > maxDim) {
-            var halfW = width / 2
-            var halfH = height / 2
-            while ((halfW / sampleSize) >= maxDim || (halfH / sampleSize) >= maxDim) {
-                sampleSize *= 2
-            }
-        }
-        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val decoded = context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, decodeOptions)
-        } ?: return null
-
-        val scaled = if (decoded.width > maxDim || decoded.height > maxDim) {
-            val scale = minOf(maxDim.toFloat() / decoded.width, maxDim.toFloat() / decoded.height)
-            val targetW = (decoded.width * scale).toInt().coerceAtLeast(1)
-            val targetH = (decoded.height * scale).toInt().coerceAtLeast(1)
-            Bitmap.createScaledBitmap(decoded, targetW, targetH, true).also {
-                if (it !== decoded) decoded.recycle()
-            }
-        } else {
-            decoded
-        }
-
-        ByteArrayOutputStream().use { baos ->
-            scaled.compress(Bitmap.CompressFormat.JPEG, 82, baos)
-            scaled.recycle()
-            baos.toByteArray()
-        }
-    }.getOrNull()
 }

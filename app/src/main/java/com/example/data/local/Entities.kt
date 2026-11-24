@@ -22,6 +22,8 @@ data class PastPaperEntity(
     val lesson: String,
     val subject: String,
     val term: String,
+    val year: String = "",
+    val linkedLectureId: String? = null,
     val questionsJson: String,
     val updatedAt: Long = System.currentTimeMillis()
 )

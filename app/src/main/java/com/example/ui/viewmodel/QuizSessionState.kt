@@ -32,7 +32,11 @@ data class QuizSessionState(
 }
 
 fun QuizSessionState.selectMcqOption(option: String, correctAnswer: String?): QuizSessionState {
-    val isCorrect = option == correctAnswer
+    return selectMcqOption(option, listOfNotNull(correctAnswer))
+}
+
+fun QuizSessionState.selectMcqOption(option: String, correctResponses: List<String>): QuizSessionState {
+    val isCorrect = correctResponses.any { it.equals(option, ignoreCase = true) }
     return if (chosenAnswer == option) {
         copy(
             chosenAnswer = null,

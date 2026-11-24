@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Assignment
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Home
@@ -70,6 +72,7 @@ import com.example.ui.screens.AddPastPaperScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LessonReaderScreen
 import com.example.ui.screens.LessonsScreen
+import com.example.ui.screens.PastPapersScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.TrackerScreen
 import com.example.ui.theme.LocalQuizzMeColors
@@ -77,6 +80,7 @@ import com.example.ui.viewmodel.AddContentViewModel
 import com.example.ui.viewmodel.HomeViewModel
 import com.example.ui.viewmodel.LessonReaderViewModel
 import com.example.ui.viewmodel.LessonsViewModel
+import com.example.ui.viewmodel.PastPapersViewModel
 import com.example.ui.viewmodel.ReaderTab
 import com.example.ui.viewmodel.SettingsViewModel
 import com.example.ui.viewmodel.TrackerViewModel
@@ -88,6 +92,9 @@ data object HomeRoute
 
 @Serializable
 data object LessonsRoute
+
+@Serializable
+data object PastPapersRoute
 
 @Serializable
 data object TrackerRoute
@@ -118,6 +125,7 @@ private data class TopLevelTab(
 private val topLevelTabs = listOf(
     TopLevelTab("Home", HomeRoute, Icons.Rounded.Home, Icons.Outlined.Home, "nav_home"),
     TopLevelTab("Lessons", LessonsRoute, Icons.Rounded.School, Icons.Outlined.School, "nav_lessons"),
+    TopLevelTab("Papers", PastPapersRoute, Icons.Rounded.Assignment, Icons.Outlined.Assignment, "nav_papers"),
     TopLevelTab("Tracker", TrackerRoute, Icons.Rounded.CalendarMonth, Icons.Outlined.CalendarMonth, "nav_tracker"),
     TopLevelTab("Settings", SettingsRoute, Icons.Rounded.Settings, Icons.Outlined.Settings, "nav_settings")
 )
@@ -136,8 +144,10 @@ fun QuizzMeApp(
 
     val isHome = currentDestination == null || currentDestination.hasRoute<HomeRoute>()
     val isLessons = currentDestination?.hasRoute<LessonsRoute>() == true
+    val isPastPapers = currentDestination?.hasRoute<PastPapersRoute>() == true
     val isTopLevel = isHome ||
         isLessons ||
+        isPastPapers ||
         currentDestination?.hasRoute<TrackerRoute>() == true ||
         currentDestination?.hasRoute<SettingsRoute>() == true
 
@@ -160,6 +170,9 @@ fun QuizzMeApp(
     )
     val lessonsViewModel: LessonsViewModel = viewModel(
         factory = simpleFactory { LessonsViewModel(repository) }
+    )
+    val pastPapersViewModel: PastPapersViewModel = viewModel(
+        factory = simpleFactory { PastPapersViewModel(repository) }
     )
     val trackerViewModel: TrackerViewModel = viewModel(
         factory = simpleFactory { TrackerViewModel(repository) }
@@ -242,6 +255,7 @@ fun QuizzMeApp(
                                 val selected = when (tab.route) {
                                     HomeRoute -> currentDestination?.hasRoute<HomeRoute>() == true
                                     LessonsRoute -> currentDestination?.hasRoute<LessonsRoute>() == true
+                                    PastPapersRoute -> currentDestination?.hasRoute<PastPapersRoute>() == true
                                     TrackerRoute -> currentDestination?.hasRoute<TrackerRoute>() == true
                                     SettingsRoute -> currentDestination?.hasRoute<SettingsRoute>() == true
                                     else -> false
@@ -315,6 +329,7 @@ fun QuizzMeApp(
                                 val selected = when (tab.route) {
                                     HomeRoute -> currentDestination?.hasRoute<HomeRoute>() == true
                                     LessonsRoute -> currentDestination?.hasRoute<LessonsRoute>() == true
+                                    PastPapersRoute -> currentDestination?.hasRoute<PastPapersRoute>() == true
                                     TrackerRoute -> currentDestination?.hasRoute<TrackerRoute>() == true
                                     SettingsRoute -> currentDestination?.hasRoute<SettingsRoute>() == true
                                     else -> false
@@ -390,7 +405,6 @@ fun QuizzMeApp(
                             viewModel = homeViewModel,
                             widthSizeClass = widthSizeClass,
                             onOpenDrawer = if (showPermanentSidebar) null else ({ scope.launch { drawerState.open() } }),
-                            onNavigateToAddPaper = { navController.navigate(AddPaperRoute) },
                             modifier = Modifier.statusBarsPadding()
                         )
                     }
@@ -409,6 +423,15 @@ fun QuizzMeApp(
                                     )
                                 )
                             },
+                            modifier = Modifier.statusBarsPadding()
+                        )
+                    }
+
+                    composable<PastPapersRoute> {
+                        PastPapersScreen(
+                            viewModel = pastPapersViewModel,
+                            widthSizeClass = widthSizeClass,
+                            onNavigateToAddPaper = { navController.navigate(AddPaperRoute) },
                             modifier = Modifier.statusBarsPadding()
                         )
                     }

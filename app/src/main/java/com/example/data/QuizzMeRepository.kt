@@ -107,22 +107,74 @@ class QuizzMeRepository(
         lesson: String,
         subject: String,
         term: String,
+        year: String = "",
+        linkedLectureId: String? = null,
         questions: List<QuizQuestion>
     ): PastPaperEntity {
         val cleanLesson = lesson.trim()
         val cleanSubject = subject.trim()
         val cleanTerm = term.trim()
-        val paperId = id ?: buildSlugId(cleanLesson, cleanSubject, cleanTerm)
+        val cleanYear = year.trim()
+        val normalizedQuestions = questions.map { q ->
+            q.copy(
+                year = q.year?.takeIf { it.isNotBlank() } ?: cleanYear.ifBlank { null },
+                lesson = q.lesson?.takeIf { it.isNotBlank() } ?: cleanLesson.ifBlank { null }
+            )
+        }
+        val paperId = id ?: buildSlugId(
+            cleanLesson.ifBlank { cleanSubject },
+            cleanSubject.ifBlank { "general" },
+            cleanYear.ifBlank { cleanTerm }.ifBlank { System.currentTimeMillis().toString() }
+        )
         val entity = PastPaperEntity(
             id = paperId,
             lesson = cleanLesson,
             subject = cleanSubject,
             term = cleanTerm,
-            questionsJson = QuizJsonParser.encodeDeck(questions),
+            year = cleanYear,
+            linkedLectureId = linkedLectureId,
+            questionsJson = QuizJsonParser.encodeDeck(normalizedQuestions),
             updatedAt = System.currentTimeMillis()
         )
         pastPaperDao.upsert(entity)
         return entity
+    }
+
+    suspend fun linkPastPaperToLesson(paperId: String, lecture: LectureEntity?) {
+        val paper = pastPaperDao.getById(paperId) ?: return
+        val existingQuestions = runCatching { QuizJsonParser.parseQuestions(paper.questionsJson) }
+            .getOrDefault(emptyList())
+        val updatedQuestions = if (lecture != null) {
+            existingQuestions.map { q -> q.copy(lesson = lecture.lesson) }
+        } else {
+            existingQuestions
+        }
+        pastPaperDao.upsert(
+            paper.copy(
+                linkedLectureId = lecture?.id,
+                lesson = lecture?.lesson ?: paper.lesson,
+                subject = lecture?.subject ?: paper.subject,
+                term = lecture?.term ?: paper.term,
+                questionsJson = QuizJsonParser.encodeDeck(updatedQuestions),
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    suspend fun updatePastPaperQuestions(paperId: String, questions: List<QuizQuestion>) {
+        val paper = pastPaperDao.getById(paperId) ?: return
+        val normalized = questions.map { q ->
+            q.copy(
+                year = q.year?.takeIf { it.isNotBlank() } ?: paper.year.ifBlank { null },
+                lesson = q.lesson?.takeIf { it.isNotBlank() } ?: paper.lesson.ifBlank { null }
+            )
+        }
+        pastPaperDao.upsert(
+            paper.copy(
+                questionsJson = QuizJsonParser.encodeDeck(normalized),
+                updatedAt = System.currentTimeMillis()
+            )
+        )
     }
 
     suspend fun deletePastPaper(id: String) {
@@ -134,7 +186,8 @@ class QuizzMeRepository(
         if (allPapers.isEmpty()) return emptyList()
 
         val exactMatches = allPapers.filter { paper ->
-            paper.id == lecture.id ||
+            paper.linkedLectureId == lecture.id ||
+                paper.id == lecture.id ||
                 paper.id == "paper_${lecture.id}" ||
                 (paper.lesson.equals(lecture.lesson, ignoreCase = true) &&
                     paper.subject.equals(lecture.subject, ignoreCase = true))

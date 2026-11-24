@@ -1,8 +1,5 @@
 package com.example.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -33,18 +30,11 @@ import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -80,15 +70,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.AiRepository
-import com.example.ui.components.DeleteConfirmDialog
 import com.example.ui.components.MarkdownContent
 import com.example.ui.components.QuizCard
 import com.example.ui.components.QuizResultsCard
 import com.example.ui.components.SummaryCardBlock
 import com.example.ui.components.markdownToEditablePlainText
 import com.example.ui.components.parseMarkdownToSummaryCards
-import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalQuizzMeColors
 import com.example.ui.viewmodel.LessonReaderViewModel
 import com.example.ui.viewmodel.ReaderTab
@@ -110,8 +97,6 @@ fun LessonReaderScreen(
 
     var showEditModal by remember { mutableStateOf(false) }
     var editableText by remember { mutableStateOf("") }
-    var showPastPaperMenu by remember { mutableStateOf(false) }
-    var showDeletePaperConfirm by remember { mutableStateOf(false) }
 
     BackHandler { onBack() }
 
@@ -221,7 +206,7 @@ fun LessonReaderScreen(
                     .widthIn(max = if (isTablet) 1140.dp else 680.dp)
                     .fillMaxWidth()
             ) {
-                // Segmented 4-Tab Bar
+                // Segmented 3-Tab Bar
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -257,14 +242,6 @@ fun LessonReaderScreen(
                             selected = uiState.activeTab == ReaderTab.SUMMARY,
                             onClick = { viewModel.selectTab(ReaderTab.SUMMARY) },
                             tag = "tab_summary",
-                            modifier = Modifier.weight(1f)
-                        )
-                        ReaderTabButton(
-                            label = "Paper",
-                            icon = Icons.Rounded.History,
-                            selected = uiState.activeTab == ReaderTab.PAST_PAPER,
-                            onClick = { viewModel.selectTab(ReaderTab.PAST_PAPER) },
-                            tag = "tab_past_paper",
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -478,191 +455,6 @@ fun LessonReaderScreen(
                                     }
                                 }
                             }
-
-                            ReaderTab.PAST_PAPER -> {
-                                Column(
-                                    modifier = Modifier
-                                        .widthIn(max = 840.dp)
-                                        .fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "Past Paper Questions",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            color = ext.title
-                                        )
-
-                                        if (uiState.pastPaperSession.deck.isNotEmpty()) {
-                                            Box {
-                                                IconButton(
-                                                    onClick = { showPastPaperMenu = true },
-                                                    modifier = Modifier.testTag("past_paper_menu_button")
-                                                ) {
-                                                    Icon(
-                                                        Icons.Rounded.MoreVert,
-                                                        contentDescription = "Past paper options",
-                                                        tint = ext.title
-                                                    )
-                                                }
-                                                DropdownMenu(
-                                                    expanded = showPastPaperMenu,
-                                                    onDismissRequest = { showPastPaperMenu = false },
-                                                    containerColor = ext.card
-                                                ) {
-                                                    DropdownMenuItem(
-                                                        text = { Text("Delete Past Paper", color = ext.danger) },
-                                                        leadingIcon = {
-                                                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = ext.danger)
-                                                        },
-                                                        onClick = {
-                                                            showPastPaperMenu = false
-                                                            showDeletePaperConfirm = true
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    if (uiState.pastPaperSession.deck.isEmpty()) {
-                                        OutlinedTextField(
-                                            value = uiState.pastPaperInputText,
-                                            onValueChange = viewModel::updatePastPaperInput,
-                                            placeholder = {
-                                                Text("Paste JSON or plain text here...", color = ext.subtext)
-                                            },
-                                            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                                fontFamily = JetBrainsMonoFontFamily,
-                                                color = ext.title
-                                            ),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .heightIn(min = 180.dp)
-                                                .testTag("reader_past_paper_input"),
-                                            shape = RoundedCornerShape(14.dp),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = ext.accent,
-                                                unfocusedBorderColor = ext.border,
-                                                focusedContainerColor = ext.card,
-                                                unfocusedContainerColor = ext.card
-                                            )
-                                        )
-
-                                        if (uiState.pastPaperError != null) {
-                                            Text(
-                                                text = uiState.pastPaperError!!,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = ext.danger,
-                                                modifier = Modifier.padding(top = 8.dp)
-                                            )
-                                        }
-
-                                        Spacer(Modifier.height(14.dp))
-
-                                        if (uiState.processingPastPaper) {
-                                            CenteredLoadingState("Detecting & Structuring Past Paper...")
-                                        } else {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Button(
-                                                    onClick = viewModel::saveDirectJsonPastPaper,
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(48.dp)
-                                                        .testTag("save_direct_json_button"),
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    colors = ButtonDefaults.buttonColors(
-                                                        containerColor = ext.accent,
-                                                        contentColor = Color.White
-                                                    )
-                                                ) {
-                                                    Text("Save JSON Directly", style = MaterialTheme.typography.labelMedium)
-                                                }
-                                                Button(
-                                                    onClick = viewModel::convertPlaintextPastPaper,
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(48.dp)
-                                                        .testTag("convert_plaintext_ai_button"),
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    colors = ButtonDefaults.buttonColors(
-                                                        containerColor = ext.accent,
-                                                        contentColor = Color.White
-                                                    )
-                                                ) {
-                                                    Text("Convert via AI", style = MaterialTheme.typography.labelMedium)
-                                                }
-                                                Surface(
-                                                    onClick = {
-                                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                        clipboard.setPrimaryClip(
-                                                            ClipData.newPlainText(
-                                                                "QuizzMe Past Paper Prompt",
-                                                                AiRepository.PAST_PAPER_CONVERT_PROMPT
-                                                            )
-                                                        )
-                                                        scope.launch {
-                                                            snackbarHostState.showSnackbar("Converting prompt copied to clipboard")
-                                                        }
-                                                    },
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    color = ext.card,
-                                                    border = BorderStroke(1.dp, ext.border),
-                                                    modifier = Modifier
-                                                        .minimumInteractiveComponentSize()
-                                                        .size(48.dp)
-                                                        .testTag("copy_paper_convert_prompt_button")
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.ContentCopy,
-                                                            contentDescription = "Copy converting prompt",
-                                                            tint = ext.accent,
-                                                            modifier = Modifier.size(18.dp)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        if (uiState.pastPaperSession.quizFinished) {
-                                            QuizResultsCard(
-                                                runningScore = uiState.pastPaperSession.runningScore,
-                                                maxPossibleScore = uiState.pastPaperSession.maxPossibleScore(uiState.pastPaperStyle),
-                                                actionLabel = "Restart Past Paper",
-                                                onActionClick = viewModel::restartPastPaperSession
-                                            )
-                                        } else {
-                                            uiState.pastPaperSession.currentQuestion?.let { q ->
-                                                QuizCard(
-                                                    question = q,
-                                                    sessionState = uiState.pastPaperSession,
-                                                    questionStyle = uiState.pastPaperStyle,
-                                                    onMcqOptionClick = viewModel::onMcqOptionSelected,
-                                                    onTfToggle = viewModel::onTfToggle,
-                                                    onEvaluateTf = viewModel::onEvaluateTf,
-                                                    onSaInputChange = viewModel::onSaInputChange,
-                                                    onRevealSaAnswer = viewModel::onRevealSaAnswer,
-                                                    onGradeSa = viewModel::onGradeSa,
-                                                    onSeqNotesChange = viewModel::onSeqNotesChange,
-                                                    onToggleSeqAnswer = viewModel::onToggleSeqAnswer,
-                                                    onGradeSeq = viewModel::onGradeSeq,
-                                                    onNextQuestion = viewModel::onNextQuestion
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -746,18 +538,6 @@ fun LessonReaderScreen(
                 }
             }
         }
-    }
-
-    if (showDeletePaperConfirm) {
-        DeleteConfirmDialog(
-            title = "Delete Past Paper?",
-            message = "Are you sure you want to delete this past paper from device storage? This action cannot be undone.",
-            onCancel = { showDeletePaperConfirm = false },
-            onConfirm = {
-                showDeletePaperConfirm = false
-                viewModel.deletePastPaper()
-            }
-        )
     }
 }
 

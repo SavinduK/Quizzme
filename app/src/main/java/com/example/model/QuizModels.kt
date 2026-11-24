@@ -99,23 +99,44 @@ data class QuizQuestion(
     val options: List<String>? = null,
     @SerialName("correct_answer")
     val correctAnswer: String? = null,
+    @SerialName("correct_answers")
+    val correctAnswers: List<String>? = null,
     val statements: List<String>? = null,
     val answers: List<Boolean>? = null,
     val explanation: String? = null,
     @SerialName("sub_questions")
     val subQuestions: List<SeqSubQuestion>? = null,
     @SerialName("model_answer")
-    val modelAnswer: String? = null
+    val modelAnswer: String? = null,
+    val year: String? = null,
+    val lesson: String? = null
 ) {
     fun detectedStyle(): QuestionStyle {
         return when {
             !subQuestions.isNullOrEmpty() -> QuestionStyle.SEQ
             !statements.isNullOrEmpty() && !answers.isNullOrEmpty() -> QuestionStyle.TF
-            !options.isNullOrEmpty() && correctAnswer != null -> QuestionStyle.MCQ
-            !explanation.isNullOrBlank() && correctAnswer != null -> QuestionStyle.SA
+            !options.isNullOrEmpty() && (correctAnswer != null || !correctAnswers.isNullOrEmpty()) -> QuestionStyle.MCQ
+            !explanation.isNullOrBlank() && (correctAnswer != null || !correctAnswers.isNullOrEmpty()) -> QuestionStyle.SA
             !type.isNullOrBlank() -> QuestionStyle.fromString(type)
             else -> QuestionStyle.MCQ
         }
+    }
+
+    fun primaryCorrectAnswer(): String? {
+        return correctAnswer?.takeIf { it.isNotBlank() } ?: correctAnswers?.firstOrNull { it.isNotBlank() }
+    }
+
+    fun resolvedCorrectResponses(): List<String> {
+        val list = buildList {
+            if (!correctAnswers.isNullOrEmpty()) {
+                addAll(correctAnswers.filter { it.isNotBlank() })
+            }
+            val single = correctAnswer?.takeIf { it.isNotBlank() }
+            if (single != null && none { it.equals(single, ignoreCase = true) }) {
+                add(0, single)
+            }
+        }
+        return list
     }
 }
 

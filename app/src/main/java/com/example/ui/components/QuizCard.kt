@@ -132,7 +132,42 @@ fun QuizCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            if (!question.year.isNullOrBlank() || !question.lesson.isNullOrBlank()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 10.dp)
+                ) {
+                    question.year?.takeIf { it.isNotBlank() }?.let { yr ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = ext.accentSoft
+                        ) {
+                            Text(
+                                text = "Year: $yr",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ext.accent,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    question.lesson?.takeIf { it.isNotBlank() }?.let { les ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = ext.background,
+                            border = BorderStroke(1.dp, ext.border)
+                        ) {
+                            Text(
+                                text = les,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ext.subtext,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
 
             // Question Stem
             Text(
@@ -146,9 +181,11 @@ fun QuizCard(
             when (resolvedStyle) {
                 QuestionStyle.MCQ -> {
                     val options = question.options.orEmpty()
+                    val correctResponses = question.resolvedCorrectResponses()
                     options.forEachIndexed { idx, option ->
                         val isSelected = sessionState.chosenAnswer == option
-                        val isCorrect = option == question.correctAnswer
+                        val isCorrect = correctResponses.any { it.equals(option, ignoreCase = true) } ||
+                            option == question.primaryCorrectAnswer()
                         val answered = sessionState.chosenAnswer != null
 
                         val bgColor = when {
@@ -382,7 +419,9 @@ fun QuizCard(
                                     color = ext.accent
                                 )
                                 Text(
-                                    text = question.correctAnswer.orEmpty(),
+                                    text = question.resolvedCorrectResponses().joinToString(" / ").ifBlank {
+                                        question.primaryCorrectAnswer().orEmpty()
+                                    },
                                     style = MaterialTheme.typography.titleMedium,
                                     color = ext.title,
                                     modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
